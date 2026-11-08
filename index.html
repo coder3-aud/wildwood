@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#17251c">
+    <title>Wildwood — Top-Down Explorer</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="game.js" defer></script>
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="game-header">
+        <div>
+          <p class="eyebrow">FIELD TEST 01</p>
+          <h1>Wildwood</h1>
+          <p class="subtitle">A little world to explore</p>
+        </div>
+        <button class="new-world-button" id="new-world" type="button">Generate new world</button>
+      </header>
+
+      <section class="game-panel" aria-label="Game">
+        <div class="canvas-wrap">
+          <canvas id="game" tabindex="0" aria-label="Top-down forest game. Use WASD or arrow keys to move, Space to jump, number keys 1 through 8 to select inventory, left click to use your weapon or food, and right click to mine rocks or place stone blocks.">
+            Your browser does not support the HTML canvas element.
+          </canvas>
+          <aside class="minimap-panel" aria-label="World minimap">
+            <p class="minimap-title">WORLD MAP</p>
+            <canvas id="minimap" width="160" height="160" aria-label="Map of the entire world with the player marked in gold">
+              World map unavailable.
+            </canvas>
+            <output id="player-coordinates" class="player-coordinates" aria-label="Player tile coordinates">X 41 · Y 41</output>
+          </aside>
+        </div>
+        <footer class="game-footer">
+          <p><span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span> or <span class="keycap keycap-wide">↑ ↓ ← →</span> to move</p>
+          <p class="hint"><span class="keycap keycap-wide">SPACE</span> to jump (stamina refills after standing still)</p>
+          <p class="hint">Left click to swing your sword</p>
+          <p class="hint">Right click rocks to mine; right click ground to build</p>
+          <p class="hint">Jump to reach flying enemies</p>
+          <p class="hint">Walk over rare drops to collect; keys 1–8 select your inventory</p>
+          <p class="hint">Left click attacks with weapons or eats selected food</p>
+        </footer>
+      </section>
+
+      <p class="next-step"><span aria-hidden="true">✦</span> The world is built from editable tiles — ready for custom sprites and new game features.</p>
+    </main>
+  </body>
+</html>
