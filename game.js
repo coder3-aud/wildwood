@@ -8,7 +8,15 @@
   const PLAYER_SPEED = 190;
   const PLAYER_MAX_HEALTH = 100;
   const PLAYER_MAX_STAMINA = 100;
-  const JUMP_STAMINA_COST = 35;
+  const CAULDRON_INGREDIENTS_TO_BREW = 3;
+  const CAULDRON_HEALING_PER_INGREDIENT = PLAYER_MAX_HEALTH / 4;
+  const DAMAGE_BOOST_DURATION = 3;
+  const INVINCIBILITY_DURATION = 5;
+  const INFINITE_STAMINA_DURATION = 10;
+  const JUMP_STAMINA_COST = PLAYER_MAX_STAMINA / 8;
+  const DASH_STAMINA_COST = PLAYER_MAX_STAMINA / 4;
+  const DASH_DURATION = 0.2;
+  const DASH_SPEED_MULTIPLIER = 3;
   const STAMINA_REGEN_DELAY = 1;
   const STAMINA_REGEN_RATE = 35;
   const INVENTORY_SLOT_COUNT = 8;
@@ -16,6 +24,8 @@
   const ENEMY_MAX_HEALTH = 60;
   const ENEMY_RADIUS = 8;
   const ENEMY_SPEED = 58;
+  const ENEMY_DAMAGE = 6;
+  const ENEMY_SWING_DURATION = 0.55;
   const FLYING_ENEMY_CHANCE = 0.3;
   const FOG_SCALE = 0.25;
   const FOV_EDGE_FADE_START = 0.9;
@@ -74,20 +84,45 @@
     health: PLAYER_MAX_HEALTH,
     stamina: PLAYER_MAX_STAMINA,
     stationaryTime: 0,
+    dashTime: 0,
+    dashX: 0,
+    dashY: 0,
     stones: 0,
     selectedSlot: 0,
     weaponCooldown: 0,
     swordSwing: 0,
     swingDuration: SWORD_SWING_DURATION,
     swingWeaponId: "sword",
+    cauldronIngredients: [],
+    healingTowardIngredient: 0,
+    damageBoostTime: 0,
+    invincibilityTime: 0,
+    infiniteStaminaTime: 0,
+    shieldRaised: false,
   };
   let world;
   let viewWidth = 0;
   let viewHeight = 0;
   let currentCameraX = 0;
   let currentCameraY = 0;
+  let mouseWorldX = 0;
+  let mouseWorldY = 0;
   let previousFrame = 0;
   let enemySpawnTimer = 0;
+
+  function normalizeKey(key) {
+    return key.length === 1 ? key.toLowerCase() : key;
+  }
+
+  function updateMouseWorldPosition(event) {
+    const bounds = canvas.getBoundingClientRect();
+    if (bounds.width === 0 || bounds.height === 0) {
+      return;
+    }
+
+    mouseWorldX = currentCameraX + (event.clientX - bounds.left) * viewWidth / bounds.width;
+    mouseWorldY = currentCameraY + (event.clientY - bounds.top) * viewHeight / bounds.height;
+  }
 
   function createRandom(seed) {
     let state = seed >>> 0;
@@ -188,12 +223,23 @@
     player.health = PLAYER_MAX_HEALTH;
     player.stamina = PLAYER_MAX_STAMINA;
     player.stationaryTime = 0;
+    player.dashTime = 0;
+    player.dashX = 0;
+    player.dashY = 0;
     player.stones = 0;
     player.selectedSlot = 0;
     player.weaponCooldown = 0;
     player.swordSwing = 0;
     player.swingDuration = SWORD_SWING_DURATION;
     player.swingWeaponId = "sword";
+    player.cauldronIngredients = [];
+    player.healingTowardIngredient = 0;
+    player.damageBoostTime = 0;
+    player.invincibilityTime = 0;
+    player.infiniteStaminaTime = 0;
+    player.shieldRaised = false;
+    mouseWorldX = player.x + player.facingX * TILE_SIZE;
+    mouseWorldY = player.y + player.facingY * TILE_SIZE;
     enemySpawnTimer = 0;
     resetMinimapExploration();
     spawnEnemy();
@@ -389,6 +435,8 @@
         hoverPhase: Math.random() * Math.PI * 2,
         health: ENEMY_MAX_HEALTH,
         attackCooldown: 0,
+        swingTime: 0,
+        swingAngle: 0,
       });
       return;
     }
@@ -434,6 +482,32 @@
     }
   }
 
+  function getShieldAngle() {
+    const directionX = mouseWorldX - player.x;
+    const directionY = mouseWorldY - player.y;
+    return Math.hypot(directionX, directionY) > 0
+      ? Math.atan2(directionY, directionX)
+      : Math.atan2(player.facingY, player.facingX);
+  }
+
+  function isEnemyBlockedByShield(enemy) {
+    if (!player.shieldRaised) {
+      return false;
+    }
+
+    const directionX = enemy.x - player.x;
+    const directionY = enemy.y - player.y;
+    const distance = Math.hypot(directionX, directionY);
+    if (distance === 0) {
+      return true;
+    }
+
+    const shieldAngle = getShieldAngle();
+    const facingX = Math.cos(shieldAngle);
+    const facingY = Math.sin(shieldAngle);
+    return (directionX * facingX + directionY * facingY) / distance >= 0;
+  }
+
   function beginSwordSwing() {
     const selectedItem = inventory[player.selectedSlot];
     if (
@@ -455,6 +529,26 @@
   function getSelectedWeapon() {
     const selectedItem = inventory[player.selectedSlot];
     return selectedItem?.type === "weapon" ? WEAPONS[selectedItem.id] : null;
+  }
+
+  function addCauldronIngredient(ingredient) {
+    if (player.cauldronIngredients.length >= CAULDRON_INGREDIENTS_TO_BREW) {
+      return;
+    }
+
+    player.cauldronIngredients.push(ingredient);
+    if (player.cauldronIngredients.length === CAULDRON_INGREDIENTS_TO_BREW) {
+      const recipe = player.cauldronIngredients.slice();
+      player.cauldronIngredients = [];
+      if (recipe.every((action) => action === "hit")) {
+        player.damageBoostTime = DAMAGE_BOOST_DURATION;
+      } else if (recipe.every((action) => action === "block")) {
+        player.invincibilityTime = INVINCIBILITY_DURATION;
+      } else if (recipe.every((action) => action === "heal")) {
+        player.infiniteStaminaTime = INFINITE_STAMINA_DURATION;
+        player.stamina = PLAYER_MAX_STAMINA;
+      }
+    }
   }
 
   function attackWithWeapon(x, y) {
@@ -486,7 +580,8 @@
         continue;
       }
 
-      enemy.health -= weapon.damage;
+      enemy.health -= weapon.damage * (player.damageBoostTime > 0 ? 2 : 1);
+      addCauldronIngredient("hit");
       if (enemy.health <= 0) {
         enemies.splice(index, 1);
       }
@@ -499,7 +594,13 @@
       return;
     }
 
+    const previousHealth = player.health;
     player.health = Math.min(PLAYER_MAX_HEALTH, player.health + FOODS[slot.id].healing);
+    player.healingTowardIngredient += player.health - previousHealth;
+    while (player.healingTowardIngredient >= CAULDRON_HEALING_PER_INGREDIENT) {
+      player.healingTowardIngredient -= CAULDRON_HEALING_PER_INGREDIENT;
+      addCauldronIngredient("heal");
+    }
     slot.count -= 1;
     if (slot.count === 0) {
       inventory[player.selectedSlot] = null;
@@ -602,6 +703,7 @@
       if (enemy.airborne) {
         enemy.hoverPhase += deltaSeconds * 8;
       }
+      enemy.swingTime = Math.max(0, enemy.swingTime - deltaSeconds);
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - deltaSeconds);
       const offsetX = player.x - enemy.x;
       const offsetY = player.y - enemy.y;
@@ -611,8 +713,17 @@
         || getPlayerJumpHeight() >= JUMP_HEIGHT / 2;
       if (distance <= PLAYER_RADIUS + ENEMY_RADIUS + 3 && canReachPlayer) {
         if (enemy.attackCooldown === 0) {
-          player.health = Math.max(0, player.health - 10);
+          const blockedByShield = isEnemyBlockedByShield(enemy);
+          const damage = blockedByShield || player.invincibilityTime > 0
+            ? 0
+            : ENEMY_DAMAGE;
+          player.health = Math.max(0, player.health - damage);
+          if (blockedByShield) {
+            addCauldronIngredient("block");
+          }
           enemy.attackCooldown = 1.1;
+          enemy.swingTime = ENEMY_SWING_DURATION;
+          enemy.swingAngle = Math.atan2(offsetY, offsetX);
         }
         continue;
       }
@@ -636,6 +747,12 @@
   function updatePlayer(deltaSeconds) {
     player.weaponCooldown = Math.max(0, player.weaponCooldown - deltaSeconds);
     player.swordSwing = Math.max(0, player.swordSwing - deltaSeconds);
+    player.damageBoostTime = Math.max(0, player.damageBoostTime - deltaSeconds);
+    player.invincibilityTime = Math.max(0, player.invincibilityTime - deltaSeconds);
+    player.infiniteStaminaTime = Math.max(0, player.infiniteStaminaTime - deltaSeconds);
+    if (player.infiniteStaminaTime > 0) {
+      player.stamina = PLAYER_MAX_STAMINA;
+    }
     if (player.health <= 0) {
       return;
     }
@@ -651,10 +768,15 @@
       }
     }
 
-    let moveX = Number(keysDown.has("ArrowRight") || keysDown.has("d") || keysDown.has("D"))
-      - Number(keysDown.has("ArrowLeft") || keysDown.has("a") || keysDown.has("A"));
-    let moveY = Number(keysDown.has("ArrowDown") || keysDown.has("s") || keysDown.has("S"))
-      - Number(keysDown.has("ArrowUp") || keysDown.has("w") || keysDown.has("W"));
+    const isDashing = player.dashTime > 0;
+    let moveX = isDashing
+      ? player.dashX
+      : Number(keysDown.has("ArrowRight") || keysDown.has("d") || keysDown.has("D"))
+        - Number(keysDown.has("ArrowLeft") || keysDown.has("a") || keysDown.has("A"));
+    let moveY = isDashing
+      ? player.dashY
+      : Number(keysDown.has("ArrowDown") || keysDown.has("s") || keysDown.has("S"))
+        - Number(keysDown.has("ArrowUp") || keysDown.has("w") || keysDown.has("W"));
 
     const previousX = player.x;
     const previousY = player.y;
@@ -662,10 +784,13 @@
       const magnitude = Math.hypot(moveX, moveY);
       moveX /= magnitude;
       moveY /= magnitude;
-      player.facingX = moveX;
-      player.facingY = moveY;
+      if (!isDashing) {
+        player.facingX = moveX;
+        player.facingY = moveY;
+      }
 
-      const distance = PLAYER_SPEED * deltaSeconds;
+      const speed = PLAYER_SPEED * (isDashing ? DASH_SPEED_MULTIPLIER : 1);
+      const distance = speed * deltaSeconds;
       const nextX = player.x + moveX * distance;
       const nextY = player.y + moveY * distance;
 
@@ -680,9 +805,12 @@
         player.lastSafeY = player.y;
       }
     }
+    if (isDashing) {
+      player.dashTime = Math.max(0, player.dashTime - deltaSeconds);
+    }
 
     const moved = player.x !== previousX || player.y !== previousY;
-    if (moved) {
+    if (moved || isDashing) {
       player.stationaryTime = 0;
     } else if (!player.isJumping) {
       player.stationaryTime += deltaSeconds;
@@ -811,6 +939,49 @@
     context.arc(x - 3, y - 1, 1.5, 0, Math.PI * 2);
     context.arc(x + 3, y - 1, 1.5, 0, Math.PI * 2);
     context.fill();
+    if (enemy.swingTime > 0) {
+      const progress = Math.min(1, 1 - enemy.swingTime / ENEMY_SWING_DURATION);
+      const easedProgress = progress * progress * (3 - 2 * progress);
+      const swingStart = enemy.swingAngle - 1.3;
+      const swingEnd = enemy.swingAngle + 1.3;
+      const swordAngle = swingStart + (swingEnd - swingStart) * easedProgress;
+
+      context.save();
+      context.lineCap = "round";
+      for (let segment = 0; segment < 10; segment += 1) {
+        const segmentEndProgress = Math.max(0, easedProgress - segment * 0.045);
+        const segmentStartProgress = Math.max(0, segmentEndProgress - 0.07);
+        if (segmentEndProgress <= segmentStartProgress) {
+          continue;
+        }
+
+        const startAngle = swingStart + (swingEnd - swingStart) * segmentStartProgress;
+        const endAngle = swingStart + (swingEnd - swingStart) * segmentEndProgress;
+        context.strokeStyle = `rgb(255 224 198 / ${Math.round(42 * (1 - segment / 10))}%)`;
+        context.lineWidth = 2 + (1 - segment / 10) * 4;
+        context.beginPath();
+        context.arc(x, y, 23, startAngle, endAngle);
+        context.stroke();
+      }
+
+      const handX = x + Math.cos(swordAngle) * 7;
+      const handY = y + Math.sin(swordAngle) * 7;
+      const tipX = x + Math.cos(swordAngle) * 25;
+      const tipY = y + Math.sin(swordAngle) * 25;
+      context.strokeStyle = "#b8a18e";
+      context.lineWidth = 3;
+      context.beginPath();
+      context.moveTo(handX, handY);
+      context.lineTo(tipX, tipY);
+      context.stroke();
+      context.strokeStyle = "#f4e4cc";
+      context.lineWidth = 1.5;
+      context.beginPath();
+      context.moveTo(handX + Math.cos(swordAngle + Math.PI / 2), handY + Math.sin(swordAngle + Math.PI / 2));
+      context.lineTo(tipX + Math.cos(swordAngle + Math.PI / 2), tipY + Math.sin(swordAngle + Math.PI / 2));
+      context.stroke();
+      context.restore();
+    }
     drawHealthBar(
       x - 12,
       y - 15,
@@ -820,26 +991,20 @@
     );
   }
 
-  function drawPickup(pickup) {
-    const x = pickup.x - currentCameraX;
-    const y = pickup.y - currentCameraY;
-    context.fillStyle = "rgb(18 32 22 / 35%)";
-    context.beginPath();
-    context.ellipse(x, y + 6, 10, 4, 0, 0, Math.PI * 2);
-    context.fill();
-
+  function drawItemIcon(id, x, y, scale = 1) {
     context.save();
     context.translate(x, y);
-    if (pickup.id === "sword" || pickup.id === "spear") {
-      const length = pickup.id === "spear" ? 22 : 17;
+    context.scale(scale, scale);
+    if (id === "sword" || id === "spear") {
+      const length = id === "spear" ? 22 : 17;
       context.lineCap = "round";
-      context.strokeStyle = pickup.id === "spear" ? "#795538" : "#75563c";
+      context.strokeStyle = id === "spear" ? "#795538" : "#75563c";
       context.lineWidth = 3;
       context.beginPath();
       context.moveTo(-length / 2, 4);
       context.lineTo(length / 2, -4);
       context.stroke();
-      context.strokeStyle = pickup.id === "spear" ? "#d9ded0" : "#e4e6d9";
+      context.strokeStyle = id === "spear" ? "#d9ded0" : "#e4e6d9";
       context.lineWidth = 2.5;
       context.beginPath();
       context.moveTo(0, 0);
@@ -852,7 +1017,7 @@
       context.lineTo(length / 2 + 3, -8.5);
       context.closePath();
       context.fill();
-      if (pickup.id === "sword") {
+      if (id === "sword") {
         context.strokeStyle = "#d4ae6e";
         context.lineWidth = 2;
         context.beginPath();
@@ -860,7 +1025,7 @@
         context.lineTo(1, 5);
         context.stroke();
       }
-    } else if (pickup.id === "axe") {
+    } else if (id === "axe") {
       context.lineCap = "round";
       context.strokeStyle = "#76543a";
       context.lineWidth = 3;
@@ -880,7 +1045,7 @@
       context.strokeStyle = "#737a70";
       context.lineWidth = 1;
       context.stroke();
-    } else if (pickup.id === "apple") {
+    } else if (id === "apple") {
       context.fillStyle = "#c95642";
       context.beginPath();
       context.arc(-3, 1, 5, 0, Math.PI * 2);
@@ -896,7 +1061,7 @@
       context.beginPath();
       context.ellipse(4, -6, 3, 1.5, -0.5, 0, Math.PI * 2);
       context.fill();
-    } else if (pickup.id === "berries") {
+    } else if (id === "berries") {
       context.fillStyle = "#70558f";
       context.beginPath();
       context.arc(-4, 1, 3.5, 0, Math.PI * 2);
@@ -913,12 +1078,28 @@
     context.restore();
   }
 
+  function drawPickup(pickup) {
+    const x = pickup.x - currentCameraX;
+    const y = pickup.y - currentCameraY;
+    context.fillStyle = "rgb(18 32 22 / 35%)";
+    context.beginPath();
+    context.ellipse(x, y + 6, 10, 4, 0, 0, Math.PI * 2);
+    context.fill();
+    drawItemIcon(pickup.id, x, y);
+  }
+
   function drawPlayerHealth() {
     const panelWidth = viewWidth < 480 ? 138 : 170;
     const x = viewWidth - panelWidth - (viewWidth < 480 ? 10 : 16);
     const y = 16;
+    const activeEffects = [
+      { label: "DAMAGE x2", remaining: player.damageBoostTime, duration: DAMAGE_BOOST_DURATION, color: "#e18b65" },
+      { label: "INVINCIBLE", remaining: player.invincibilityTime, duration: INVINCIBILITY_DURATION, color: "#8ec5d2" },
+      { label: "INFINITE STAMINA", remaining: player.infiniteStaminaTime, duration: INFINITE_STAMINA_DURATION, color: "#b4d880" },
+    ].filter((effect) => effect.remaining > 0);
+    const panelHeight = 80 + activeEffects.length * 22;
     context.fillStyle = "rgb(20 34 24 / 84%)";
-    context.fillRect(x, y, panelWidth, 80);
+    context.fillRect(x, y, panelWidth, panelHeight);
     context.fillStyle = "#f0f5e9";
     context.font = "700 10px ui-sans-serif, system-ui, sans-serif";
     context.textAlign = "left";
@@ -936,6 +1117,24 @@
     );
     context.font = "600 10px ui-sans-serif, system-ui, sans-serif";
     context.fillText(`STONE ${player.stones}`, x + 10, y + 62);
+    activeEffects.forEach((effect, index) => {
+      const effectY = y + 80 + index * 22;
+      context.fillStyle = effect.color;
+      context.font = "700 8px ui-sans-serif, system-ui, sans-serif";
+      context.fillText(effect.label, x + 10, effectY);
+      context.textAlign = "right";
+      context.fillText(`${effect.remaining.toFixed(1)}s`, x + panelWidth - 10, effectY);
+      context.textAlign = "left";
+      context.fillStyle = "rgb(15 22 17 / 82%)";
+      context.fillRect(x + 10, effectY + 10, panelWidth - 20, 5);
+      context.fillStyle = effect.color;
+      context.fillRect(
+        x + 10,
+        effectY + 10,
+        (panelWidth - 20) * effect.remaining / effect.duration,
+        5,
+      );
+    });
 
     if (player.health === 0) {
       context.fillStyle = "rgb(10 17 13 / 72%)";
@@ -990,13 +1189,11 @@
 
       const isWeapon = item.type === "weapon";
       const itemInfo = isWeapon ? WEAPONS[item.id] : FOODS[item.id];
-      context.fillStyle = isWeapon ? "#eee0a1" : "#f0a27a";
-      context.font = "700 16px ui-sans-serif, system-ui, sans-serif";
-      context.fillText(itemInfo.icon, x + slotSize / 2, y + 23);
+      drawItemIcon(item.id, x + slotSize / 2, y + 22, 0.78);
       context.fillStyle = "#f0f5e9";
       context.font = "600 7px ui-sans-serif, system-ui, sans-serif";
       context.fillText(itemInfo.name.toUpperCase(), x + slotSize / 2, y + 42);
-      if (!isWeapon) {
+      if (item.type !== "weapon") {
         context.fillStyle = "#f0f5e9";
         context.font = "700 8px ui-sans-serif, system-ui, sans-serif";
         context.textAlign = "right";
@@ -1006,6 +1203,101 @@
 
     context.textAlign = "left";
     context.textBaseline = "alphabetic";
+  }
+
+  function drawCauldron(timestamp) {
+    const centerX = viewWidth - 64;
+    const centerY = viewHeight - (viewWidth < 720 ? 128 : 74);
+    const ingredients = player.cauldronIngredients;
+    const ingredientColors = {
+      hit: "#e18b65",
+      block: "#8ec5d2",
+      heal: "#b4d880",
+    };
+    const ingredientLabels = {
+      hit: "H",
+      block: "B",
+      heal: "+",
+    };
+    const ingredientCenters = Array.from({ length: CAULDRON_INGREDIENTS_TO_BREW }, (_, index) => {
+      const angle = -Math.PI / 2 + index * (Math.PI * 2 / CAULDRON_INGREDIENTS_TO_BREW);
+      return {
+        x: centerX + Math.cos(angle) * 44,
+        y: centerY + Math.sin(angle) * 44,
+      };
+    });
+
+    context.save();
+    context.fillStyle = "#e7eddc";
+    context.font = "700 9px ui-sans-serif, system-ui, sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText("BREW", centerX, centerY - 61);
+
+    context.fillStyle = "rgb(12 19 14 / 45%)";
+    context.beginPath();
+    context.arc(centerX, centerY + 3, 29, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = "#26352e";
+    context.beginPath();
+    context.arc(centerX, centerY, 27, 0, Math.PI * 2);
+    context.fill();
+    context.save();
+    context.beginPath();
+    context.arc(centerX, centerY, 22, 0, Math.PI * 2);
+    context.clip();
+    context.fillStyle = "#172522";
+    context.fillRect(centerX - 22, centerY - 22, 44, 44);
+    if (ingredients.length > 0) {
+      const fillRatio = ingredients.length / CAULDRON_INGREDIENTS_TO_BREW;
+      const liquidTop = centerY + 18 - 36 * fillRatio;
+      const wave = Math.sin(timestamp / 180) * 2;
+      const liquid = context.createLinearGradient(0, liquidTop, 0, centerY + 20);
+      liquid.addColorStop(0, "#b4d880");
+      liquid.addColorStop(1, "#477d55");
+      context.fillStyle = liquid;
+      context.beginPath();
+      context.moveTo(centerX - 23, liquidTop + wave);
+      context.quadraticCurveTo(centerX, liquidTop - wave, centerX + 23, liquidTop + wave);
+      context.lineTo(centerX + 23, centerY + 23);
+      context.lineTo(centerX - 23, centerY + 23);
+      context.closePath();
+      context.fill();
+      for (let index = 0; index < ingredients.length; index += 1) {
+        const cycle = (timestamp / 700 + index / 3) % 1;
+        const bubbleX = centerX + Math.sin(timestamp / 250 + index * 2) * (5 + index * 2);
+        const bubbleY = liquidTop + 3 + cycle * Math.max(2, centerY + 18 - liquidTop);
+        context.fillStyle = `rgb(223 246 167 / ${Math.round(75 * (1 - cycle))}%)`;
+        context.beginPath();
+        context.arc(bubbleX, bubbleY, 1.5, 0, Math.PI * 2);
+        context.fill();
+      }
+    }
+    context.restore();
+    context.strokeStyle = "#a4b99a";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(centerX, centerY, 25, 0, Math.PI * 2);
+    context.stroke();
+
+    ingredientCenters.forEach((point, index) => {
+      const ingredient = ingredients[index];
+      context.fillStyle = ingredient ? ingredientColors[ingredient] : "rgb(24 35 29 / 92%)";
+      context.beginPath();
+      context.arc(point.x, point.y, 10, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = ingredient ? "#e1ebd2" : "#899789";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(point.x, point.y, 10, 0, Math.PI * 2);
+      context.stroke();
+      if (ingredient) {
+        context.fillStyle = "#17251c";
+        context.font = "800 10px ui-sans-serif, system-ui, sans-serif";
+        context.fillText(ingredientLabels[ingredient], point.x, point.y + 0.5);
+      }
+    });
+    context.restore();
   }
 
   function drawPlayer(screenX, screenY) {
@@ -1034,6 +1326,45 @@
     context.beginPath();
     context.arc(screenX + player.facingX * 4, screenY - 5 + player.facingY * 3, 1.5, 0, Math.PI * 2);
     context.fill();
+
+    if (player.shieldRaised) {
+      const shieldAngle = getShieldAngle();
+      const guardStart = shieldAngle - Math.PI / 2;
+      const guardEnd = shieldAngle + Math.PI / 2;
+      context.fillStyle = "rgb(131 174 193 / 15%)";
+      context.beginPath();
+      context.moveTo(screenX, screenY + 1);
+      context.arc(screenX, screenY + 1, 23, guardStart, guardEnd);
+      context.closePath();
+      context.fill();
+      context.strokeStyle = "rgb(190 218 218 / 48%)";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(screenX, screenY + 1, 23, guardStart, guardEnd);
+      context.stroke();
+
+      context.save();
+      context.translate(
+        screenX + Math.cos(shieldAngle) * 13,
+        screenY + 1 + Math.sin(shieldAngle) * 13,
+      );
+      context.rotate(shieldAngle);
+      context.fillStyle = "#738f96";
+      context.strokeStyle = "#d5d5b9";
+      context.lineWidth = 1.5;
+      context.beginPath();
+      context.moveTo(7, -8);
+      context.lineTo(9, -5);
+      context.lineTo(7, 5);
+      context.lineTo(0, 10);
+      context.lineTo(-7, 5);
+      context.lineTo(-9, -5);
+      context.lineTo(-7, -8);
+      context.closePath();
+      context.fill();
+      context.stroke();
+      context.restore();
+    }
 
     const activeWeapon = player.swordSwing > 0
       ? WEAPONS[player.swingWeaponId]
@@ -1171,6 +1502,7 @@
     drawWorldFog(cameraX, cameraY);
     drawPlayerHealth();
     drawInventory();
+    drawCauldron(timestamp);
     drawMinimap();
   }
 
@@ -1191,6 +1523,9 @@
       return;
     }
     const key = event.key;
+    if (normalizeKey(key) === "e") {
+      player.shieldRaised = true;
+    }
     if (/^[1-8]$/.test(key)) {
       player.selectedSlot = Number(key) - 1;
     }
@@ -1200,13 +1535,45 @@
         !event.repeat
         && !player.isJumping
         && player.health > 0
-        && player.stamina >= JUMP_STAMINA_COST
+        && (player.infiniteStaminaTime > 0 || player.stamina >= JUMP_STAMINA_COST)
       ) {
         player.isJumping = true;
         player.jumpElapsed = 0;
         player.lastSafeX = player.x;
         player.lastSafeY = player.y;
-        player.stamina -= JUMP_STAMINA_COST;
+        if (player.infiniteStaminaTime <= 0) {
+          player.stamina -= JUMP_STAMINA_COST;
+        }
+        player.stationaryTime = 0;
+      }
+    }
+    if (key === "Shift") {
+      event.preventDefault();
+      if (
+        !event.repeat
+        && player.dashTime === 0
+        && player.health > 0
+        && (player.infiniteStaminaTime > 0 || player.stamina >= DASH_STAMINA_COST)
+      ) {
+        let dashX = Number(keysDown.has("ArrowRight") || keysDown.has("d") || keysDown.has("D"))
+          - Number(keysDown.has("ArrowLeft") || keysDown.has("a") || keysDown.has("A"));
+        let dashY = Number(keysDown.has("ArrowDown") || keysDown.has("s") || keysDown.has("S"))
+          - Number(keysDown.has("ArrowUp") || keysDown.has("w") || keysDown.has("W"));
+        const magnitude = Math.hypot(dashX, dashY);
+        if (magnitude > 0) {
+          dashX /= magnitude;
+          dashY /= magnitude;
+        } else {
+          dashX = player.facingX;
+          dashY = player.facingY;
+        }
+
+        player.dashX = dashX;
+        player.dashY = dashY;
+        player.dashTime = DASH_DURATION;
+        if (player.infiniteStaminaTime <= 0) {
+          player.stamina -= DASH_STAMINA_COST;
+        }
         player.stationaryTime = 0;
       }
     }
@@ -1214,27 +1581,33 @@
       event.preventDefault();
     }
     if (/^(ArrowUp|ArrowDown|ArrowLeft|ArrowRight|[wasd])$/i.test(key)) {
-      keysDown.add(key);
+      keysDown.add(normalizeKey(key));
     }
   });
 
   window.addEventListener("keyup", (event) => {
-    keysDown.delete(event.key);
+    const key = normalizeKey(event.key);
+    keysDown.delete(key);
+    if (key === "e") {
+      player.shieldRaised = false;
+    }
   });
-  window.addEventListener("blur", () => keysDown.clear());
+  window.addEventListener("blur", () => {
+    keysDown.clear();
+    player.shieldRaised = false;
+  });
+  canvas.addEventListener("mousemove", updateMouseWorldPosition);
   canvas.addEventListener("mousedown", (event) => {
     if (event.button !== 0 && event.button !== 2) {
       return;
     }
 
     event.preventDefault();
-    const bounds = canvas.getBoundingClientRect();
-    const worldX = currentCameraX + (event.clientX - bounds.left) * viewWidth / bounds.width;
-    const worldY = currentCameraY + (event.clientY - bounds.top) * viewHeight / bounds.height;
+    updateMouseWorldPosition(event);
     if (event.button === 0) {
-      attackWithWeapon(worldX, worldY);
+      attackWithWeapon(mouseWorldX, mouseWorldY);
     } else {
-      interactWithWorld(worldX, worldY);
+      interactWithWorld(mouseWorldX, mouseWorldY);
     }
   });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
