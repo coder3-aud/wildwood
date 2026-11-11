@@ -16,20 +16,75 @@
           <h1>Wildwood</h1>
           <p class="subtitle">A little world to explore</p>
         </div>
-        <button class="new-world-button" id="new-world" type="button">Generate new world</button>
+        <p class="editor-shortcut"><span class="keycap">P</span> Open map editor</p>
       </header>
 
       <section class="game-panel" aria-label="Game">
         <div class="canvas-wrap">
-          <canvas id="game" tabindex="0" aria-label="Top-down forest game. Use WASD or arrow keys to move, Space to jump, hold E to block attacks from the direction of the mouse, number keys 1 through 8 to select inventory, left click to use your weapon or food, and right click to mine rocks or place stone blocks.">
+          <canvas id="game" tabindex="0" aria-label="Top-down forest game. Use WASD or arrow keys to move, Space to jump, hold E to block attacks from the direction of the mouse, number keys 1 through 8 to select inventory, left click to attack in the direction you are moving or last moved or eat selected food, and right click to mine rocks or place stone blocks.">
             Your browser does not support the HTML canvas element.
           </canvas>
           <aside class="minimap-panel" aria-label="World minimap">
             <p class="minimap-title">WORLD MAP</p>
-            <canvas id="minimap" width="160" height="160" aria-label="Map of the entire world with the player marked in gold">
+            <canvas id="minimap" width="200" height="160" aria-label="Map of the 2500 by 2000 tile world with the player marked in gold">
               World map unavailable.
             </canvas>
-            <output id="player-coordinates" class="player-coordinates" aria-label="Player tile coordinates">X 41 · Y 41</output>
+            <output id="player-coordinates" class="player-coordinates" aria-label="Player tile coordinates">X 1251 · Y 1001</output>
+          </aside>
+          <aside id="editor-panel" class="editor-panel" aria-label="Map editor" hidden>
+            <header class="editor-header">
+              <div>
+                <p class="editor-eyebrow">WORLD TOOLS</p>
+                <h2>Map editor</h2>
+              </div>
+              <button id="editor-close" class="editor-close" type="button" aria-label="Close map editor">×</button>
+            </header>
+            <p id="editor-selection" class="editor-selection" aria-live="polite">Choose an asset to paint the map.</p>
+            <section class="editor-section" aria-labelledby="terrain-heading">
+              <h3 id="terrain-heading">Terrain</h3>
+              <div id="terrain-palette" class="asset-palette"></div>
+            </section>
+            <section class="editor-section" aria-labelledby="objects-heading">
+              <h3 id="objects-heading">Objects</h3>
+              <div id="object-palette" class="asset-palette"></div>
+            </section>
+            <section class="editor-section" aria-labelledby="custom-art-heading">
+              <h3 id="custom-art-heading">Custom art</h3>
+              <p class="editor-hint">Add images to <code>assets/editor-assets</code>, then load or refresh that folder. Browser-supported formats include PNG, JPEG, WebP, GIF, BMP, AVIF, and SVG. Images are fitted to a transparent 128 × 128 canvas.</p>
+              <div id="custom-palette" class="asset-palette"></div>
+              <section id="hitbox-editor" class="hitbox-editor" aria-labelledby="hitbox-heading" hidden>
+                <h4 id="hitbox-heading">Selected asset hitbox</h4>
+                <p id="hitbox-asset-label" class="hitbox-asset-label">Select a custom image to edit its hitbox.</p>
+                <label class="hitbox-toggle">
+                  <input id="hitbox-enabled" type="checkbox">
+                  <span>Solid to player and ground enemies</span>
+                </label>
+                <div id="hitbox-preview" class="hitbox-preview" role="application" aria-label="Drag on the image preview to set the hitbox">
+                  <img id="hitbox-preview-image" alt="">
+                  <div id="hitbox-preview-box" class="hitbox-preview-box"></div>
+                </div>
+                <p class="hitbox-help">Drag on the preview to draw the collision box. Values use 128 × 128 art pixels and apply to every placed copy of this image.</p>
+                <div class="hitbox-fields">
+                  <label>X <input id="hitbox-x" type="number" min="0" max="127" step="1" value="24"></label>
+                  <label>Y <input id="hitbox-y" type="number" min="0" max="127" step="1" value="24"></label>
+                  <label>Width <input id="hitbox-width" type="number" min="1" max="128" step="1" value="80"></label>
+                  <label>Height <input id="hitbox-height" type="number" min="1" max="128" step="1" value="80"></label>
+                </div>
+              </section>
+              <div class="custom-art-actions">
+                <button id="load-art-folder" class="art-action" type="button">Load / refresh art folder</button>
+                <button id="import-art-files" class="art-action art-action-secondary" type="button">Import image files</button>
+              </div>
+              <input id="art-folder-input" class="visually-hidden" type="file" accept="image/*" webkitdirectory directory multiple tabindex="-1" aria-label="Choose a folder of art images">
+              <input id="art-files-input" class="visually-hidden" type="file" accept="image/*" multiple tabindex="-1" aria-label="Choose image files">
+              <output id="custom-art-status" class="custom-art-status" aria-live="polite">No custom art loaded.</output>
+            </section>
+            <button id="erase-tool" class="erase-tool" type="button" aria-pressed="false">
+              <span class="erase-icon" aria-hidden="true">⌫</span>
+              <span>Erase objects</span>
+            </button>
+            <p class="editor-hint">Click or drag on the map to paint. Erase removes placed objects and pickups.</p>
+            <p class="editor-hint editor-exit-hint"><span class="keycap">P</span> or <span class="keycap">ESC</span> to close</p>
           </aside>
         </div>
         <footer class="game-footer">
@@ -37,11 +92,12 @@
           <p class="hint"><span class="keycap keycap-wide">SPACE</span> to jump (⅛ stamina)</p>
           <p class="hint"><span class="keycap">SHIFT</span> to dash (¼ stamina)</p>
           <p class="hint"><span class="keycap">E</span> hold shield toward mouse to block attacks from the front</p>
-          <p class="hint">Left click to swing your sword</p>
+          <p class="hint"><span class="keycap">P</span> open map editor</p>
+          <p class="hint">Left click to attack in the direction you are moving (or last moved)</p>
           <p class="hint">Right click rocks to mine; right click ground to build</p>
           <p class="hint">Jump to reach flying enemies</p>
           <p class="hint">Walk over rare drops to collect; keys 1–8 select your inventory</p>
-          <p class="hint">Left click attacks with weapons or eats selected food</p>
+          <p class="hint">Left click attacks in your movement direction or eats selected food</p>
           <p class="hint">Three matching brew actions grant a boost: double damage (3s), invincibility (5s), or infinite stamina (10s)</p>
         </footer>
       </section>

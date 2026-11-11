@@ -2,8 +2,8 @@
 
 (() => {
   const TILE_SIZE = 32;
-  const MAP_COLUMNS = 80;
-  const MAP_ROWS = 80;
+  const MAP_COLUMNS = 2500;
+  const MAP_ROWS = 2000;
   const PLAYER_RADIUS = 10;
   const PLAYER_SPEED = 190;
   const PLAYER_MAX_HEALTH = 100;
@@ -27,7 +27,7 @@
   const ENEMY_DAMAGE = 6;
   const ENEMY_SWING_DURATION = 0.55;
   const FLYING_ENEMY_CHANCE = 0.3;
-  const FOG_SCALE = 0.25;
+  const FOG_SCALE = 1 / TILE_SIZE;
   const FOV_EDGE_FADE_START = 0.9;
   const JUMP_DURATION = 0.55;
   const JUMP_HEIGHT = 24;
@@ -43,6 +43,19 @@
   const OBSTACLE_GRASS = 3;
   const OBSTACLE_STONE = 4;
   const GROUND_COLORS = ["#557b45", "#587f47", "#527641", "#5b8049"];
+  const EDITOR_GROUND_ASSETS = GROUND_COLORS.map((_, index) => ({
+    label: `Ground ${index + 1}`,
+    file: `ground-${index}.png`,
+    value: index,
+  }));
+  const EDITOR_OBJECT_ASSETS = [
+    { label: "Tree", file: "tree.png", value: OBSTACLE_TREE },
+    { label: "Rock", file: "rock.png", value: OBSTACLE_ROCK },
+    { label: "Grass", file: "grass.png", value: OBSTACLE_GRASS },
+    { label: "Stone", file: "stone-block.png", value: OBSTACLE_STONE },
+  ];
+  const EDITOR_ART_SIZE = 128;
+  const EDITOR_ART_EXTENSIONS = /\.(avif|bmp|gif|jpe?g|png|svg|webp|tiff?)$/i;
   const WEAPONS = {
     sword: { name: "Sword", damage: 35, range: SWORD_RANGE, cooldown: SWORD_COOLDOWN, icon: "S" },
     spear: { name: "Spear", damage: 25, range: 68, cooldown: 0.5, icon: "P" },
@@ -53,7 +66,7 @@
     apple: { name: "Apple", healing: 35, icon: "F" },
   };
   const canvas = document.querySelector("#game");
-  const context = canvas.getContext("2d");
+  let context = canvas.getContext("2d");
   const minimapCanvas = document.querySelector("#minimap");
   const minimapContext = minimapCanvas.getContext("2d");
   const minimapTerrain = document.createElement("canvas");
@@ -66,7 +79,69 @@
   const worldFogContext = worldFog.getContext("2d");
   worldFogContext.imageSmoothingEnabled = true;
   const coordinatesLabel = document.querySelector("#player-coordinates");
-  const newWorldButton = document.querySelector("#new-world");
+  const editorPanel = document.querySelector("#editor-panel");
+  const editorCloseButton = document.querySelector("#editor-close");
+  const terrainPalette = document.querySelector("#terrain-palette");
+  const objectPalette = document.querySelector("#object-palette");
+  const customPalette = document.querySelector("#custom-palette");
+  const hitboxEditor = document.querySelector("#hitbox-editor");
+  const hitboxAssetLabel = document.querySelector("#hitbox-asset-label");
+  const hitboxEnabledInput = document.querySelector("#hitbox-enabled");
+  const hitboxPreview = document.querySelector("#hitbox-preview");
+  const hitboxPreviewImage = document.querySelector("#hitbox-preview-image");
+  const hitboxPreviewBox = document.querySelector("#hitbox-preview-box");
+  const hitboxFields = {
+    x: document.querySelector("#hitbox-x"),
+    y: document.querySelector("#hitbox-y"),
+    width: document.querySelector("#hitbox-width"),
+    height: document.querySelector("#hitbox-height"),
+  };
+  const loadArtFolderButton = document.querySelector("#load-art-folder");
+  const importArtFilesButton = document.querySelector("#import-art-files");
+  const artFolderInput = document.querySelector("#art-folder-input");
+  const artFilesInput = document.querySelector("#art-files-input");
+  const customArtStatus = document.querySelector("#custom-art-status");
+  const eraseToolButton = document.querySelector("#erase-tool");
+  const editorSelectionLabel = document.querySelector("#editor-selection");
+  const canvasWrap = document.querySelector(".canvas-wrap");
+  const spriteImages = new Map();
+  const SPRITE_FILES = [
+    "ground-0.png",
+    "ground-1.png",
+    "ground-2.png",
+    "ground-3.png",
+    "tree.png",
+    "rock.png",
+    "grass.png",
+    "stone-block.png",
+    "enemy.png",
+    "flying-enemy.png",
+    "flying-wings.png",
+    "player.png",
+    "player-jump.png",
+    "sword.png",
+    "spear.png",
+    "axe.png",
+    "apple.png",
+    "berries.png",
+  ];
+
+  for (const filename of SPRITE_FILES) {
+    const image = new Image();
+    image.onerror = () => console.error(`Unable to load sprite: assets/${filename}`);
+    image.src = `assets/${filename}`;
+    spriteImages.set(filename.slice(0, -4), image);
+  }
+
+  function drawSprite(name, x, y, width, height = width) {
+    const image = spriteImages.get(name);
+    if (!image?.complete || image.naturalWidth === 0) {
+      return false;
+    }
+
+    context.drawImage(image, x - width / 2, y - height / 2, width, height);
+    return true;
+  }
 
   const keysDown = new Set();
   const enemies = [];
@@ -109,6 +184,18 @@
   let mouseWorldY = 0;
   let previousFrame = 0;
   let enemySpawnTimer = 0;
+  let editorOpen = false;
+  let editorPainting = false;
+  let editorPointerInside = false;
+  let editorLastColumn = null;
+  let editorLastRow = null;
+  let editorAssetDirectory = null;
+  let nextCustomAssetId = 0;
+  let isDrawingHitbox = false;
+  let hitboxDragStartX = 0;
+  let hitboxDragStartY = 0;
+  const editorAssets = new Map();
+  let editorSelection = { type: "object", value: OBSTACLE_TREE, label: "Tree" };
 
   function normalizeKey(key) {
     return key.length === 1 ? key.toLowerCase() : key;
@@ -146,10 +233,9 @@
       for (let column = 0; column < MAP_COLUMNS; column += 1) {
         const index = row * MAP_COLUMNS + column;
         const distanceFromSpawn = Math.hypot(column - spawnColumn, row - spawnRow);
-
         ground[index] = Math.floor(random() * GROUND_COLORS.length);
 
-        if (distanceFromSpawn < 3 || random() > 0.13) {
+        if (distanceFromSpawn < 3 || random() > 0.1) {
           continue;
         }
 
@@ -170,7 +256,7 @@
         if (
           distanceFromSpawn < 5
           || (objects[index] !== OBSTACLE_NONE && objects[index] !== OBSTACLE_GRASS)
-          || random() > 0.004
+          || random() > 0.000008
         ) {
           continue;
         }
@@ -191,7 +277,7 @@
       }
     }
 
-    return { ground, objects, pickups };
+    return { ground, objects, pickups, customObjects: new Map() };
   }
 
   function createSeed() {
@@ -247,28 +333,415 @@
   }
 
   function drawMinimapTerrain() {
-    const tileWidth = minimapTerrain.width / MAP_COLUMNS;
-    const tileHeight = minimapTerrain.height / MAP_ROWS;
-
-    for (let row = 0; row < MAP_ROWS; row += 1) {
-      for (let column = 0; column < MAP_COLUMNS; column += 1) {
+    for (let pixelY = 0; pixelY < minimapTerrain.height; pixelY += 1) {
+      const row = Math.min(MAP_ROWS - 1, Math.floor(pixelY * MAP_ROWS / minimapTerrain.height));
+      for (let pixelX = 0; pixelX < minimapTerrain.width; pixelX += 1) {
+        const column = Math.min(MAP_COLUMNS - 1, Math.floor(pixelX * MAP_COLUMNS / minimapTerrain.width));
         const index = row * MAP_COLUMNS + column;
-        const object = world.objects[index];
-        minimapTerrainContext.fillStyle = object === OBSTACLE_TREE
-          ? "#315239"
-          : object === OBSTACLE_ROCK
-            ? "#9ba394"
-            : object === OBSTACLE_STONE
-              ? "#777f75"
-                : object === OBSTACLE_GRASS
-                  ? "#a2b96a"
-                  : GROUND_COLORS[world.ground[index]];
-        minimapTerrainContext.fillRect(
-          column * tileWidth,
-          row * tileHeight,
-          tileWidth,
-          tileHeight,
-        );
+        minimapTerrainContext.fillStyle = getMinimapColor(index);
+        minimapTerrainContext.fillRect(pixelX, pixelY, 1, 1);
+      }
+    }
+  }
+
+  function getMinimapColor(index) {
+    if (world.customObjects.has(index)) {
+      return "#c2bb8a";
+    }
+
+    const object = world.objects[index];
+    return object === OBSTACLE_TREE
+      ? "#315239"
+      : object === OBSTACLE_ROCK
+        ? "#9ba394"
+        : object === OBSTACLE_STONE
+          ? "#777f75"
+          : object === OBSTACLE_GRASS
+            ? "#a2b96a"
+            : GROUND_COLORS[world.ground[index]];
+  }
+
+  function drawMinimapTile(column, row) {
+    const pixelX = Math.min(minimapTerrain.width - 1, Math.floor(column * minimapTerrain.width / MAP_COLUMNS));
+    const pixelY = Math.min(minimapTerrain.height - 1, Math.floor(row * minimapTerrain.height / MAP_ROWS));
+    const index = row * MAP_COLUMNS + column;
+    minimapTerrainContext.fillStyle = getMinimapColor(index);
+    minimapTerrainContext.fillRect(pixelX, pixelY, 1, 1);
+  }
+
+  function buildEditorPalette(container, assets, type) {
+    for (const asset of assets) {
+      const button = document.createElement("button");
+      button.className = "asset-button";
+      button.type = "button";
+      button.setAttribute("aria-label", asset.label);
+      button.setAttribute("aria-pressed", "false");
+      button.dataset.editorType = type;
+      button.dataset.editorValue = String(asset.value);
+
+      const image = document.createElement("img");
+      image.src = `assets/${asset.file}`;
+      image.alt = "";
+      image.draggable = false;
+
+      const label = document.createElement("span");
+      label.textContent = asset.label;
+      button.append(image, label);
+      button.addEventListener("click", () => selectEditorAsset(type, asset.value, asset.label));
+      container.append(button);
+    }
+  }
+
+  function getImageLabel(path) {
+    const filename = path.split("/").pop() || path;
+    return filename.replace(/\.[^.]+$/, "");
+  }
+
+  function createNormalizedArt(source) {
+    const width = source.width || source.naturalWidth;
+    const height = source.height || source.naturalHeight;
+    if (!width || !height) {
+      throw new Error("The image has no readable dimensions.");
+    }
+
+    const artCanvas = document.createElement("canvas");
+    artCanvas.width = EDITOR_ART_SIZE;
+    artCanvas.height = EDITOR_ART_SIZE;
+    const artContext = artCanvas.getContext("2d");
+    const scale = Math.min(EDITOR_ART_SIZE / width, EDITOR_ART_SIZE / height);
+    const drawWidth = width * scale;
+    const drawHeight = height * scale;
+    artContext.drawImage(
+      source,
+      (EDITOR_ART_SIZE - drawWidth) / 2,
+      (EDITOR_ART_SIZE - drawHeight) / 2,
+      drawWidth,
+      drawHeight,
+    );
+    return artCanvas;
+  }
+
+  async function decodeImageFile(file) {
+    if (typeof createImageBitmap === "function") {
+      try {
+        const bitmap = await createImageBitmap(file);
+        try {
+          return createNormalizedArt(bitmap);
+        } finally {
+          bitmap.close();
+        }
+      } catch {
+        // Fall through to the browser image decoder for formats not handled by createImageBitmap.
+      }
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error("The browser cannot decode this image format."));
+        element.src = objectUrl;
+      });
+      return createNormalizedArt(image);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  function addCustomAsset(asset) {
+    asset.hitbox = { enabled: false, x: 24, y: 24, width: 80, height: 80 };
+    editorAssets.set(asset.id, asset);
+    const button = document.createElement("button");
+    button.className = "asset-button";
+    button.type = "button";
+    button.setAttribute("aria-label", asset.label);
+    button.setAttribute("aria-pressed", "false");
+    button.dataset.editorType = "custom";
+    button.dataset.editorValue = asset.id;
+
+    const image = document.createElement("img");
+    image.src = asset.canvas.toDataURL("image/png");
+    image.alt = "";
+    image.draggable = false;
+
+    const label = document.createElement("span");
+    label.textContent = asset.label;
+    button.append(image, label);
+    button.addEventListener("click", () => selectEditorAsset("custom", asset.id, asset.label));
+    customPalette.append(button);
+  }
+
+  async function loadEditorImages(files, source, replaceFolderAssets = false) {
+    const decodedAssets = [];
+    const failures = [];
+    const folderSelectionWasActive = replaceFolderAssets
+      && editorAssets.get(editorSelection.value)?.source === "folder";
+    for (const entry of files) {
+      const file = entry.file || entry;
+      const path = entry.path || file.webkitRelativePath || file.name;
+      if (!file.type.startsWith("image/") && !EDITOR_ART_EXTENSIONS.test(path)) {
+        continue;
+      }
+
+      try {
+        decodedAssets.push({
+          id: `custom-${nextCustomAssetId++}`,
+          label: getImageLabel(path),
+          path,
+          source,
+          canvas: await decodeImageFile(file),
+        });
+      } catch (error) {
+        failures.push(`${path}: ${error.message}`);
+      }
+    }
+
+    if (replaceFolderAssets) {
+      for (const [id, asset] of editorAssets) {
+        if (asset.source === "folder") {
+          editorAssets.delete(id);
+          customPalette.querySelector(`[data-editor-value="${id}"]`)?.remove();
+        }
+      }
+    }
+
+    for (const asset of decodedAssets) {
+      addCustomAsset(asset);
+    }
+    if (folderSelectionWasActive) {
+      selectEditorAsset("object", OBSTACLE_TREE, "Tree");
+    }
+
+    const loadedCount = decodedAssets.length;
+    const totalCount = editorAssets.size;
+    const skippedMessage = failures.length > 0
+      ? ` ${failures.length} image${failures.length === 1 ? "" : "s"} could not be loaded: ${failures.slice(0, 3).join("; ")}`
+      : "";
+    customArtStatus.textContent = loadedCount > 0
+      ? `Loaded ${loadedCount} image${loadedCount === 1 ? "" : "s"}; ${totalCount} available.${skippedMessage}`
+      : `No supported images found. ${totalCount} image${totalCount === 1 ? "" : "s"} remain available.${skippedMessage}`;
+  }
+
+  async function readEditorAssetDirectory(directory) {
+    if (typeof directory.queryPermission === "function") {
+      let permission = await directory.queryPermission({ mode: "read" });
+      if (permission !== "granted" && typeof directory.requestPermission === "function") {
+        permission = await directory.requestPermission({ mode: "read" });
+      }
+      if (permission !== "granted") {
+        throw new Error("Read access to the selected folder was not granted.");
+      }
+    }
+
+    const files = [];
+    async function readEntries(handle, parentPath) {
+      for await (const [name, entry] of handle.entries()) {
+        const path = parentPath ? `${parentPath}/${name}` : name;
+        if (entry.kind === "file") {
+          files.push({ file: await entry.getFile(), path });
+        } else if (entry.kind === "directory") {
+          await readEntries(entry, path);
+        }
+      }
+    }
+    await readEntries(directory, "");
+    return files;
+  }
+
+  async function chooseArtFolder() {
+    try {
+      if (editorAssetDirectory) {
+        const files = await readEditorAssetDirectory(editorAssetDirectory);
+        await loadEditorImages(files, "folder", true);
+        return;
+      }
+
+      if (typeof window.showDirectoryPicker === "function") {
+        editorAssetDirectory = await window.showDirectoryPicker({ mode: "read" });
+        const files = await readEditorAssetDirectory(editorAssetDirectory);
+        await loadEditorImages(files, "folder", true);
+        return;
+      }
+
+      artFolderInput.click();
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        editorAssetDirectory = null;
+        customArtStatus.textContent = `Unable to read the art folder: ${error.message}`;
+      }
+    }
+  }
+
+  function selectEditorAsset(type, value, label) {
+    editorSelection = { type, value, label };
+    editorSelectionLabel.textContent = `Painting: ${label}`;
+    eraseToolButton.setAttribute("aria-pressed", "false");
+    for (const button of editorPanel.querySelectorAll(".asset-button")) {
+      const isSelected = button.dataset.editorType === type
+        && button.dataset.editorValue === String(value);
+      button.setAttribute("aria-pressed", String(isSelected));
+    }
+    updateHitboxEditor();
+  }
+
+  function selectEraser() {
+    editorSelection = { type: "erase", value: OBSTACLE_NONE, label: "Erase objects" };
+    editorSelectionLabel.textContent = "Erasing objects and pickups";
+    eraseToolButton.setAttribute("aria-pressed", "true");
+    for (const button of editorPanel.querySelectorAll(".asset-button")) {
+      button.setAttribute("aria-pressed", "false");
+    }
+    updateHitboxEditor();
+  }
+
+  function updateHitboxPreview(asset) {
+    const { x, y, width, height, enabled } = asset.hitbox;
+    hitboxPreviewBox.style.left = `${x / EDITOR_ART_SIZE * 100}%`;
+    hitboxPreviewBox.style.top = `${y / EDITOR_ART_SIZE * 100}%`;
+    hitboxPreviewBox.style.width = `${width / EDITOR_ART_SIZE * 100}%`;
+    hitboxPreviewBox.style.height = `${height / EDITOR_ART_SIZE * 100}%`;
+    hitboxPreviewBox.classList.toggle("is-disabled", !enabled);
+  }
+
+  function updateHitboxEditor() {
+    const asset = editorSelection.type === "custom"
+      ? editorAssets.get(editorSelection.value)
+      : null;
+    hitboxEditor.hidden = !asset;
+    if (!asset) {
+      hitboxAssetLabel.textContent = "Select a custom image to edit its hitbox.";
+      hitboxPreviewImage.removeAttribute("src");
+      return;
+    }
+
+    hitboxAssetLabel.textContent = asset.label;
+    hitboxPreviewImage.src = asset.canvas.toDataURL("image/png");
+    hitboxEnabledInput.checked = asset.hitbox.enabled;
+    for (const [field, input] of Object.entries(hitboxFields)) {
+      input.value = String(asset.hitbox[field]);
+    }
+    updateHitboxPreview(asset);
+  }
+
+  function updateHitboxFromFields() {
+    const asset = editorAssets.get(editorSelection.value);
+    if (editorSelection.type !== "custom" || !asset) {
+      return;
+    }
+
+    const x = Math.max(0, Math.min(EDITOR_ART_SIZE - 1, Number(hitboxFields.x.value) || 0));
+    const y = Math.max(0, Math.min(EDITOR_ART_SIZE - 1, Number(hitboxFields.y.value) || 0));
+    const width = Math.max(1, Math.min(EDITOR_ART_SIZE - x, Number(hitboxFields.width.value) || 1));
+    const height = Math.max(1, Math.min(EDITOR_ART_SIZE - y, Number(hitboxFields.height.value) || 1));
+    asset.hitbox = { ...asset.hitbox, x, y, width, height };
+    for (const [field, input] of Object.entries(hitboxFields)) {
+      input.value = String(asset.hitbox[field]);
+    }
+    updateHitboxPreview(asset);
+  }
+
+  function updateHitboxFromPointer(event) {
+    const asset = editorAssets.get(editorSelection.value);
+    if (!isDrawingHitbox || editorSelection.type !== "custom" || !asset) {
+      return;
+    }
+
+    const bounds = hitboxPreview.getBoundingClientRect();
+    const toArtCoordinate = (value, origin, size) => Math.max(
+      0,
+      Math.min(EDITOR_ART_SIZE, Math.round((value - origin) / size * EDITOR_ART_SIZE)),
+    );
+    const startX = hitboxDragStartX;
+    const startY = hitboxDragStartY;
+    const endX = toArtCoordinate(event.clientX, bounds.left, bounds.width);
+    const endY = toArtCoordinate(event.clientY, bounds.top, bounds.height);
+    const x = Math.min(EDITOR_ART_SIZE - 1, Math.min(startX, endX));
+    const y = Math.min(EDITOR_ART_SIZE - 1, Math.min(startY, endY));
+    asset.hitbox = {
+      enabled: asset.hitbox.enabled,
+      x,
+      y,
+      width: Math.max(1, Math.min(EDITOR_ART_SIZE - x, Math.abs(endX - startX))),
+      height: Math.max(1, Math.min(EDITOR_ART_SIZE - y, Math.abs(endY - startY))),
+    };
+    for (const [field, input] of Object.entries(hitboxFields)) {
+      input.value = String(asset.hitbox[field]);
+    }
+    updateHitboxPreview(asset);
+  }
+
+  function setEditorOpen(open) {
+    editorOpen = open;
+    editorPanel.hidden = !open;
+    canvasWrap.classList.toggle("editor-active", open);
+    editorPainting = false;
+    editorLastColumn = null;
+    editorLastRow = null;
+    keysDown.clear();
+    player.shieldRaised = false;
+    if (!open) {
+      canvas.focus({ preventScroll: true });
+    }
+  }
+
+  function paintEditorTile(column, row) {
+    if (column < 0 || row < 0 || column >= MAP_COLUMNS || row >= MAP_ROWS) {
+      return;
+    }
+
+    const index = row * MAP_COLUMNS + column;
+    if (editorSelection.type === "ground") {
+      world.ground[index] = editorSelection.value;
+    } else if (editorSelection.type === "custom") {
+      const asset = editorAssets.get(editorSelection.value);
+      if (!asset) {
+        customArtStatus.textContent = `The selected image "${editorSelection.label}" is no longer loaded.`;
+        return;
+      }
+      world.objects[index] = OBSTACLE_NONE;
+      world.customObjects.set(index, asset);
+    } else if (editorSelection.type === "object") {
+      world.customObjects.delete(index);
+      world.objects[index] = editorSelection.value;
+    } else {
+      world.objects[index] = OBSTACLE_NONE;
+      world.customObjects.delete(index);
+      for (let pickupIndex = pickups.length - 1; pickupIndex >= 0; pickupIndex -= 1) {
+        const pickup = pickups[pickupIndex];
+        if (
+          Math.floor(pickup.x / TILE_SIZE) === column
+          && Math.floor(pickup.y / TILE_SIZE) === row
+        ) {
+          pickups.splice(pickupIndex, 1);
+        }
+      }
+    }
+    drawMinimapTile(column, row);
+  }
+
+  function paintEditorLine(startColumn, startRow, endColumn, endRow) {
+    let column = startColumn;
+    let row = startRow;
+    const deltaColumn = Math.abs(endColumn - startColumn);
+    const stepColumn = startColumn < endColumn ? 1 : -1;
+    const deltaRow = -Math.abs(endRow - startRow);
+    const stepRow = startRow < endRow ? 1 : -1;
+    let error = deltaColumn + deltaRow;
+
+    while (true) {
+      paintEditorTile(column, row);
+      if (column === endColumn && row === endRow) {
+        break;
+      }
+      const doubledError = 2 * error;
+      if (doubledError >= deltaRow) {
+        error += deltaRow;
+        column += stepColumn;
+      }
+      if (doubledError <= deltaColumn) {
+        error += deltaColumn;
+        row += stepRow;
       }
     }
   }
@@ -357,7 +830,7 @@
 
   function resetMinimapExploration() {
     worldFogContext.globalCompositeOperation = "source-over";
-    worldFogContext.fillStyle = "rgb(10 17 13 / 88%)";
+    worldFogContext.fillStyle = "rgb(10 17 13 / 62%)";
     worldFogContext.fillRect(0, 0, worldFog.width, worldFog.height);
     revealWorldArea();
   }
@@ -376,7 +849,8 @@
     if (column < 0 || row < 0 || column >= MAP_COLUMNS || row >= MAP_ROWS) {
       return OBSTACLE_TREE;
     }
-    return world.objects[row * MAP_COLUMNS + column];
+    const index = row * MAP_COLUMNS + column;
+    return world.objects[index];
   }
 
   function isBlockedAt(x, y, jumping = player.isJumping, radius = PLAYER_RADIUS) {
@@ -387,6 +861,24 @@
 
     for (let row = minRow; row <= maxRow; row += 1) {
       for (let column = minColumn; column <= maxColumn; column += 1) {
+        const index = row * MAP_COLUMNS + column;
+        const customAsset = world.customObjects.get(index);
+        if (customAsset?.hitbox.enabled) {
+          const hitbox = customAsset.hitbox;
+          const hitboxScale = TILE_SIZE / EDITOR_ART_SIZE;
+          const left = column * TILE_SIZE + hitbox.x * hitboxScale;
+          const top = row * TILE_SIZE + hitbox.y * hitboxScale;
+          const right = left + hitbox.width * hitboxScale;
+          const bottom = top + hitbox.height * hitboxScale;
+          const closestX = Math.max(left, Math.min(x, right));
+          const closestY = Math.max(top, Math.min(y, bottom));
+          const distanceX = x - closestX;
+          const distanceY = y - closestY;
+          if (distanceX * distanceX + distanceY * distanceY < radius * radius) {
+            return true;
+          }
+        }
+
         const obstacle = getObjectAt(column, row);
         if (
           obstacle === OBSTACLE_TREE
@@ -472,16 +964,6 @@
       : 0;
   }
 
-  function faceWorldPoint(x, y) {
-    const directionX = x - player.x;
-    const directionY = y - player.y;
-    const distance = Math.hypot(directionX, directionY);
-    if (distance > 0) {
-      player.facingX = directionX / distance;
-      player.facingY = directionY / distance;
-    }
-  }
-
   function getShieldAngle() {
     const directionX = mouseWorldX - player.x;
     const directionY = mouseWorldY - player.y;
@@ -551,14 +1033,13 @@
     }
   }
 
-  function attackWithWeapon(x, y) {
+  function attackWithWeapon() {
     const selectedItem = inventory[player.selectedSlot];
     if (selectedItem?.type === "food") {
       consumeSelectedFood();
       return;
     }
 
-    faceWorldPoint(x, y);
     if (!beginSwordSwing()) {
       return;
     }
@@ -664,7 +1145,6 @@
       if (distance > SWORD_RANGE || !beginSwordSwing()) {
         return;
       }
-      faceWorldPoint(tileX, tileY);
       world.objects[index] = OBSTACLE_NONE;
       player.stones += 1;
       drawMinimapTerrain();
@@ -825,6 +1305,10 @@
   }
 
   function drawTree(x, y) {
+    if (drawSprite("tree", x, y, 48)) {
+      return;
+    }
+
     context.fillStyle = "rgb(23 39 27 / 28%)";
     context.beginPath();
     context.ellipse(x + 2, y + 9, 13, 7, 0, 0, Math.PI * 2);
@@ -847,6 +1331,10 @@
   }
 
   function drawRock(x, y) {
+    if (drawSprite("rock", x, y, 32)) {
+      return;
+    }
+
     context.fillStyle = "rgb(23 39 27 / 28%)";
     context.beginPath();
     context.ellipse(x + 1, y + 7, 11, 5, 0, 0, Math.PI * 2);
@@ -874,6 +1362,10 @@
   }
 
   function drawStoneBlock(x, y) {
+    if (drawSprite("stone-block", x, y, 32)) {
+      return;
+    }
+
     context.fillStyle = "rgb(23 39 27 / 35%)";
     context.fillRect(x - 13, y + 9, 26, 5);
     context.fillStyle = "#71796f";
@@ -886,6 +1378,10 @@
   }
 
   function drawGrass(x, y) {
+    if (drawSprite("grass", x, y, 24)) {
+      return;
+    }
+
     context.strokeStyle = "#a2b96a";
     context.lineWidth = 2;
     context.lineCap = "round";
@@ -917,28 +1413,14 @@
 
     const hoverOffset = enemy.airborne ? Math.sin(enemy.hoverPhase) * 2 : 0;
     const y = groundY - (enemy.airborne ? JUMP_HEIGHT : 0) + hoverOffset;
+    const spriteName = enemy.airborne ? "flying-enemy" : "enemy";
     if (enemy.airborne) {
-      const wingBeat = Math.sin(enemy.hoverPhase * 3) * 4;
-      context.fillStyle = "#d7d0bc";
-      context.beginPath();
-      context.ellipse(x - 9, y - 2, 8, 3 + wingBeat * 0.25, -0.25, 0, Math.PI * 2);
-      context.ellipse(x + 9, y - 2, 8, 3 - wingBeat * 0.25, 0.25, 0, Math.PI * 2);
-      context.fill();
+      drawEnemyWings(x, y, enemy.hoverPhase);
+    }
+    if (!drawSprite(spriteName, x, y, 32)) {
+      drawEnemyBody(x, y, enemy.airborne);
     }
 
-    context.fillStyle = enemy.airborne ? "#514a69" : "#7b5149";
-    context.beginPath();
-    context.arc(x, y, ENEMY_RADIUS + 2, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = enemy.airborne ? "#8f83ae" : "#b87560";
-    context.beginPath();
-    context.arc(x - 2, y - 2, ENEMY_RADIUS - 3, Math.PI, Math.PI * 2);
-    context.fill();
-    context.fillStyle = enemy.airborne ? "#dff7f0" : "#f4e8cf";
-    context.beginPath();
-    context.arc(x - 3, y - 1, 1.5, 0, Math.PI * 2);
-    context.arc(x + 3, y - 1, 1.5, 0, Math.PI * 2);
-    context.fill();
     if (enemy.swingTime > 0) {
       const progress = Math.min(1, 1 - enemy.swingTime / ENEMY_SWING_DURATION);
       const easedProgress = progress * progress * (3 - 2 * progress);
@@ -991,7 +1473,40 @@
     );
   }
 
+  function drawEnemyWings(x, y, hoverPhase) {
+    const wingBeat = Math.sin(hoverPhase * 3) * 4;
+    if (drawSprite("flying-wings", x, y - 2, 40, 12 + wingBeat)) {
+      return;
+    }
+
+    context.fillStyle = "#d7d0bc";
+    context.beginPath();
+    context.ellipse(x - 9, y - 2, 8, 3 + wingBeat * 0.25, -0.25, 0, Math.PI * 2);
+    context.ellipse(x + 9, y - 2, 8, 3 - wingBeat * 0.25, 0.25, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  function drawEnemyBody(x, y, airborne) {
+    context.fillStyle = airborne ? "#514a69" : "#7b5149";
+    context.beginPath();
+    context.arc(x, y, ENEMY_RADIUS + 2, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = airborne ? "#8f83ae" : "#b87560";
+    context.beginPath();
+    context.arc(x - 2, y - 2, ENEMY_RADIUS - 3, Math.PI, Math.PI * 2);
+    context.fill();
+    context.fillStyle = airborne ? "#dff7f0" : "#f4e8cf";
+    context.beginPath();
+    context.arc(x - 3, y - 1, 1.5, 0, Math.PI * 2);
+    context.arc(x + 3, y - 1, 1.5, 0, Math.PI * 2);
+    context.fill();
+  }
+
   function drawItemIcon(id, x, y, scale = 1) {
+    if (drawSprite(id, x, y, 36 * scale)) {
+      return;
+    }
+
     context.save();
     context.translate(x, y);
     context.scale(scale, scale);
@@ -1310,22 +1825,10 @@
     const isAtJumpApex = jumpHeight >= JUMP_HEIGHT / 2;
     screenY -= jumpHeight;
 
-    context.fillStyle = isAtJumpApex ? "#f0d84f" : "#d8a46e";
-    context.beginPath();
-    context.arc(screenX, screenY - 5, 7, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = isAtJumpApex ? "#fff08a" : "#e7c495";
-    context.beginPath();
-    context.arc(screenX - 2, screenY - 7, 2, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = isAtJumpApex ? "#d4b52e" : "#477f58";
-    context.beginPath();
-    context.ellipse(screenX, screenY + 3, 8, 9, 0, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = "#eff0d4";
-    context.beginPath();
-    context.arc(screenX + player.facingX * 4, screenY - 5 + player.facingY * 3, 1.5, 0, Math.PI * 2);
-    context.fill();
+    const spriteName = isAtJumpApex ? "player-jump" : "player";
+    if (!drawSprite(spriteName, screenX, screenY, 32)) {
+      drawPlayerBody(screenX, screenY, isAtJumpApex);
+    }
 
     if (player.shieldRaised) {
       const shieldAngle = getShieldAngle();
@@ -1436,6 +1939,38 @@
     }
   }
 
+  function drawPlayerBody(screenX, screenY, isAtJumpApex) {
+    context.fillStyle = isAtJumpApex ? "#f0d84f" : "#d8a46e";
+    context.beginPath();
+    context.arc(screenX, screenY - 5, 7, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = isAtJumpApex ? "#fff08a" : "#e7c495";
+    context.beginPath();
+    context.arc(screenX - 2, screenY - 7, 2, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = isAtJumpApex ? "#d4b52e" : "#477f58";
+    context.beginPath();
+    context.ellipse(screenX, screenY + 3, 8, 9, 0, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = "#eff0d4";
+    context.beginPath();
+    context.arc(screenX + player.facingX * 4, screenY - 5 + player.facingY * 3, 1.5, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  function drawGroundTile(x, y, variant) {
+    if (drawSprite(`ground-${variant}`, x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE)) {
+      return;
+    }
+
+    context.fillStyle = GROUND_COLORS[variant];
+    context.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    context.fillStyle = "rgb(207 220 153 / 12%)";
+    context.fillRect(x + 6 + (variant * 7) % 17, y + 7, 2, 2);
+    context.fillStyle = "rgb(34 61 39 / 13%)";
+    context.fillRect(x + 19, y + 21 + (variant * 3) % 7, 3, 2);
+  }
+
   function drawWorld(timestamp) {
     revealWorldArea();
     const cameraX = Math.max(0, Math.min(
@@ -1463,16 +1998,20 @@
         const groundVariant = world.ground[index];
         const object = world.objects[index];
 
-        context.fillStyle = GROUND_COLORS[groundVariant];
-        context.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
-        context.fillStyle = "rgb(207 220 153 / 12%)";
-        context.fillRect(screenX + 6 + (groundVariant * 7) % 17, screenY + 7, 2, 2);
-        context.fillStyle = "rgb(34 61 39 / 13%)";
-        context.fillRect(screenX + 19, screenY + 21 + (groundVariant * 3) % 7, 3, 2);
+        drawGroundTile(screenX, screenY, groundVariant);
 
         const objectX = screenX + TILE_SIZE / 2;
         const objectY = screenY + TILE_SIZE / 2;
-        if (object === OBSTACLE_TREE) {
+        const customObject = world.customObjects.get(index);
+        if (customObject) {
+          context.drawImage(
+            customObject.canvas,
+            objectX - TILE_SIZE / 2,
+            objectY - TILE_SIZE / 2,
+            TILE_SIZE,
+            TILE_SIZE,
+          );
+        } else if (object === OBSTACLE_TREE) {
           drawTree(objectX, objectY);
         } else if (object === OBSTACLE_ROCK) {
           drawRock(objectX, objectY);
@@ -1500,10 +2039,33 @@
     }
     drawPlayer(player.x - cameraX, player.y - cameraY);
     drawWorldFog(cameraX, cameraY);
+    drawEditorCursor(cameraX, cameraY);
     drawPlayerHealth();
     drawInventory();
     drawCauldron(timestamp);
     drawMinimap();
+  }
+
+  function drawEditorCursor(cameraX, cameraY) {
+    if (!editorOpen || !editorPointerInside) {
+      return;
+    }
+
+    const column = Math.floor(mouseWorldX / TILE_SIZE);
+    const row = Math.floor(mouseWorldY / TILE_SIZE);
+    if (column < 0 || row < 0 || column >= MAP_COLUMNS || row >= MAP_ROWS) {
+      return;
+    }
+
+    const x = column * TILE_SIZE - cameraX;
+    const y = row * TILE_SIZE - cameraY;
+    context.fillStyle = editorSelection.type === "erase"
+      ? "rgb(211 112 83 / 20%)"
+      : "rgb(202 230 160 / 16%)";
+    context.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    context.strokeStyle = editorSelection.type === "erase" ? "#e09a7d" : "#d3edaa";
+    context.lineWidth = 2;
+    context.strokeRect(x + 1, y + 1, TILE_SIZE - 2, TILE_SIZE - 2);
   }
 
   function frame(timestamp) {
@@ -1512,17 +2074,31 @@
       : Math.min((timestamp - previousFrame) / 1000, 0.05);
     previousFrame = timestamp;
 
-    updatePlayer(deltaSeconds);
-    updateEnemies(deltaSeconds);
+    if (!editorOpen) {
+      updatePlayer(deltaSeconds);
+      updateEnemies(deltaSeconds);
+    }
     drawWorld(timestamp);
     window.requestAnimationFrame(frame);
   }
 
   window.addEventListener("keydown", (event) => {
+    const key = event.key;
+    if (normalizeKey(key) === "p" && !event.repeat) {
+      event.preventDefault();
+      setEditorOpen(!editorOpen);
+      return;
+    }
+    if (editorOpen) {
+      if (key === "Escape") {
+        event.preventDefault();
+        setEditorOpen(false);
+      }
+      return;
+    }
     if (event.target instanceof HTMLElement && event.target.closest("button, input, textarea, select")) {
       return;
     }
-    const key = event.key;
     if (normalizeKey(key) === "e") {
       player.shieldRaised = true;
     }
@@ -1595,8 +2171,33 @@
   window.addEventListener("blur", () => {
     keysDown.clear();
     player.shieldRaised = false;
+    editorPainting = false;
   });
-  canvas.addEventListener("mousemove", updateMouseWorldPosition);
+  canvas.addEventListener("mousemove", (event) => {
+    updateMouseWorldPosition(event);
+    editorPointerInside = true;
+    if (!editorOpen || !editorPainting) {
+      return;
+    }
+
+    const column = Math.floor(mouseWorldX / TILE_SIZE);
+    const row = Math.floor(mouseWorldY / TILE_SIZE);
+    if (editorLastColumn === null || editorLastRow === null) {
+      paintEditorTile(column, row);
+    } else {
+      paintEditorLine(editorLastColumn, editorLastRow, column, row);
+    }
+    editorLastColumn = column;
+    editorLastRow = row;
+  });
+  canvas.addEventListener("mouseenter", () => {
+    editorPointerInside = true;
+  });
+  canvas.addEventListener("mouseleave", () => {
+    editorPointerInside = false;
+    editorLastColumn = null;
+    editorLastRow = null;
+  });
   canvas.addEventListener("mousedown", (event) => {
     if (event.button !== 0 && event.button !== 2) {
       return;
@@ -1604,14 +2205,90 @@
 
     event.preventDefault();
     updateMouseWorldPosition(event);
+    if (editorOpen) {
+      if (event.button === 0) {
+        editorPainting = true;
+        editorPointerInside = true;
+        editorLastColumn = Math.floor(mouseWorldX / TILE_SIZE);
+        editorLastRow = Math.floor(mouseWorldY / TILE_SIZE);
+        paintEditorTile(editorLastColumn, editorLastRow);
+      }
+      return;
+    }
     if (event.button === 0) {
-      attackWithWeapon(mouseWorldX, mouseWorldY);
+      attackWithWeapon();
     } else {
       interactWithWorld(mouseWorldX, mouseWorldY);
     }
   });
+  window.addEventListener("mouseup", () => {
+    editorPainting = false;
+    editorLastColumn = null;
+    editorLastRow = null;
+  });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
-  newWorldButton.addEventListener("click", startNewWorld);
+  editorCloseButton.addEventListener("click", () => setEditorOpen(false));
+  eraseToolButton.addEventListener("click", selectEraser);
+  hitboxEnabledInput.addEventListener("change", () => {
+    const asset = editorAssets.get(editorSelection.value);
+    if (editorSelection.type !== "custom" || !asset) {
+      return;
+    }
+    asset.hitbox.enabled = hitboxEnabledInput.checked;
+    updateHitboxPreview(asset);
+  });
+  for (const input of Object.values(hitboxFields)) {
+    input.addEventListener("input", updateHitboxFromFields);
+    input.addEventListener("change", updateHitboxFromFields);
+  }
+  hitboxPreview.addEventListener("pointerdown", (event) => {
+    if (editorSelection.type !== "custom") {
+      return;
+    }
+    const asset = editorAssets.get(editorSelection.value);
+    if (!asset) {
+      return;
+    }
+    event.preventDefault();
+    hitboxPreview.setPointerCapture(event.pointerId);
+    const bounds = hitboxPreview.getBoundingClientRect();
+    hitboxDragStartX = Math.min(
+      EDITOR_ART_SIZE - 1,
+      Math.max(0, Math.round((event.clientX - bounds.left) / bounds.width * EDITOR_ART_SIZE)),
+    );
+    hitboxDragStartY = Math.min(
+      EDITOR_ART_SIZE - 1,
+      Math.max(0, Math.round((event.clientY - bounds.top) / bounds.height * EDITOR_ART_SIZE)),
+    );
+    isDrawingHitbox = true;
+    updateHitboxFromPointer(event);
+  });
+  hitboxPreview.addEventListener("pointermove", updateHitboxFromPointer);
+  hitboxPreview.addEventListener("pointerup", (event) => {
+    updateHitboxFromPointer(event);
+    isDrawingHitbox = false;
+  });
+  hitboxPreview.addEventListener("pointercancel", () => {
+    isDrawingHitbox = false;
+  });
+  loadArtFolderButton.addEventListener("click", chooseArtFolder);
+  importArtFilesButton.addEventListener("click", () => artFilesInput.click());
+  artFolderInput.addEventListener("change", async () => {
+    editorAssetDirectory = null;
+    await loadEditorImages(
+      Array.from(artFolderInput.files, (file) => ({ file, path: file.webkitRelativePath || file.name })),
+      "folder",
+      true,
+    );
+    artFolderInput.value = "";
+  });
+  artFilesInput.addEventListener("change", async () => {
+    await loadEditorImages(Array.from(artFilesInput.files), "import");
+    artFilesInput.value = "";
+  });
+  buildEditorPalette(terrainPalette, EDITOR_GROUND_ASSETS, "ground");
+  buildEditorPalette(objectPalette, EDITOR_OBJECT_ASSETS, "object");
+  selectEditorAsset("object", OBSTACLE_TREE, "Tree");
 
   const resizeObserver = new ResizeObserver(resizeCanvas);
   resizeObserver.observe(canvas);
