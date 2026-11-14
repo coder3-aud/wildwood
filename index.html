@@ -48,13 +48,28 @@
               <h3 id="objects-heading">Objects</h3>
               <div id="object-palette" class="asset-palette"></div>
             </section>
+            <section class="editor-section" aria-labelledby="tree-spawn-heading">
+              <h3 id="tree-spawn-heading">Tree spawning</h3>
+              <label class="tree-spawn-chance-label" for="tree-spawn-chance">
+                <span>Chance an object is a tree</span>
+                <output id="tree-spawn-chance-value" for="tree-spawn-chance">42%</output>
+              </label>
+              <input id="tree-spawn-chance" class="tree-spawn-chance" type="range" min="0" max="100" step="1" value="42">
+              <p class="editor-hint">Chance values are shares of object spawns; the remaining spawns are rocks or bushes. Trees use the green design 80% of the time and orange 20%. Each tree spans 2 × 3 tiles; only the bottom two tiles are solid.</p>
+              <button id="generate-new-world" class="art-action" type="button">Generate new world</button>
+              <p class="editor-hint">Generating a world resets this run and uses the current settings.</p>
+            </section>
             <section class="editor-section" aria-labelledby="custom-art-heading">
               <h3 id="custom-art-heading">Custom art</h3>
-              <p class="editor-hint">Add images to <code>assets/editor-assets</code>, then load or refresh that folder. Browser-supported formats include PNG, JPEG, WebP, GIF, BMP, AVIF, and SVG. Images are fitted to a transparent 128 × 128 canvas.</p>
+              <p class="editor-hint">Each 16 × 16 part from <code>assets/Overworld_Tileset.png</code> is an individual option below and is scaled to fill one 32 × 32 map tile. Select a part to choose whether all its placements draw behind the player. Add other images to <code>assets/editor-assets</code> and choose <strong>Load / refresh art folder</strong>, or import files directly.</p>
               <div id="custom-palette" class="asset-palette"></div>
               <section id="hitbox-editor" class="hitbox-editor" aria-labelledby="hitbox-heading" hidden>
                 <h4 id="hitbox-heading">Selected asset hitbox</h4>
                 <p id="hitbox-asset-label" class="hitbox-asset-label">Select a custom image to edit its hitbox.</p>
+                <label class="hitbox-toggle">
+                  <input id="behind-player" type="checkbox" checked>
+                  <span>Draw behind player</span>
+                </label>
                 <label class="hitbox-toggle">
                   <input id="hitbox-enabled" type="checkbox">
                   <span>Solid to player and ground enemies</span>
@@ -83,7 +98,7 @@
               <span class="erase-icon" aria-hidden="true">⌫</span>
               <span>Erase objects</span>
             </button>
-            <p class="editor-hint">Click or drag on the map to paint. Erase removes placed objects and pickups.</p>
+            <p class="editor-hint">Click or drag on the map to paint. Each selected sprite fills one 32 × 32 tile.</p>
             <p class="editor-hint editor-exit-hint"><span class="keycap">P</span> or <span class="keycap">ESC</span> to close</p>
           </aside>
         </div>

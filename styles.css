@@ -285,6 +285,25 @@ h1 {
   font-size: 0.95em;
 }
 
+.tree-spawn-chance-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #c9d6c3;
+  font-size: 0.65rem;
+}
+
+.tree-spawn-chance-label output {
+  color: #d7e8c1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tree-spawn-chance {
+  width: 100%;
+  margin: -2px 0 0;
+  accent-color: #b7d28f;
+}
+
 .custom-art-actions {
   display: grid;
   gap: 7px;

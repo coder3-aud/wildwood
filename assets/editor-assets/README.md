@@ -14,7 +14,12 @@ Select a custom image in the editor to configure its optional collision
 hitbox. Drag on the preview to draw the box, or enter its X, Y, width, and
 height in 128 × 128 art pixels. Enable **Solid to player and ground enemies**
 to make that box block movement. The hitbox settings apply to every placed
-instance of that image while the current world is open.
+instance of that image while the current world is open. The **Draw behind
+player** option also applies to every placed instance of the selected image.
+
+The game's `assets/Overworld_Tileset.png` is split into 234 individual
+16 × 16 parts and loaded automatically into the custom-art palette. Each part
+can be placed independently and is scaled to fill one 32 × 32 map tile.
 
 Alternatively, choose **Import image files** in the editor to load images
 from anywhere on your computer for the current browser session.

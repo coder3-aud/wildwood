@@ -7,10 +7,12 @@ best for characters, objects, and item icons.
 
 | Files | Used for | Default size |
 | --- | --- | --- |
-| `ground-0.png` through `ground-3.png` | Forest floor tile variations | 32 × 32 |
-| `tree.png` | Trees | 48 × 48 |
-| `rock.png` | Mineable rocks | 32 × 32 |
-| `grass.png` | Grass tufts | 24 × 24 |
+| `tile024.png` | All forest floor tiles | 32 × 32 |
+| `Overworld_Tileset.png` | Source sheet for the editor's split tiles | 288 × 208 |
+| [`overworld-parts/`](./overworld-parts/) | Individual 16 × 16 source parts, each scaled to fill one editor tile | 16 × 16 source; 32 × 32 placed |
+| `tree-green.png`, `tree-orange.png` | Generated 2 × 3 tile trees | 64 × 96 |
+| `tile092^2.png` through `tile094^2.png` | Mineable rocks, jumpable | 32 × 32 |
+| `tile058^2.png`, `tile059^2.png` | Solid bushes | 32 × 32 |
 | `stone-block.png` | Placeable stone blocks | 32 × 32 |
 | `enemy.png` | Ground enemies | 32 × 32 |
 | `flying-enemy.png` | Flying enemy body | 32 × 32 |
@@ -19,6 +21,14 @@ best for characters, objects, and item icons.
 | `player-jump.png` | Player at the jump apex | 32 × 32 |
 | `sword.png`, `spear.png`, `axe.png` | Inventory and pickup icons | 40 × 40 |
 | `apple.png`, `berries.png` | Inventory and pickup icons | 40 × 40 |
+
+The 234 16 × 16 parts from the tileset are available independently in the
+editor. Each is scaled to fill one 32 × 32 world tile. Generated trees use the
+green design 80% of the time and the orange design 20% of the time. Each spans
+two columns by three rows: the bottom two tiles are solid, while the top four
+are passable and draw over the player. Use the map editor's **Tree spawning**
+slider to set their share of object spawns, then generate a new world to apply
+it.
 
 If a sprite file is missing or cannot be loaded, the game falls back to its
 built-in drawing for that sprite.

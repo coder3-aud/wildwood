@@ -40,20 +40,38 @@
   const OBSTACLE_NONE = 0;
   const OBSTACLE_TREE = 1;
   const OBSTACLE_ROCK = 2;
-  const OBSTACLE_GRASS = 3;
   const OBSTACLE_STONE = 4;
+  const OBSTACLE_BUSH = 5;
   const GROUND_COLORS = ["#557b45", "#587f47", "#527641", "#5b8049"];
+  const DEFAULT_TREE_SPAWN_CHANCE = 0.42;
+  const TREE_WIDTH_TILES = 2;
+  const TREE_HEIGHT_TILES = 3;
+  const TREE_GREEN_CHANCE = 0.8;
+  const TREE_SPRITES = ["tree-green", "tree-orange"];
+  const ROCK_SPRITES = ["tile092^2", "tile093^2", "tile094^2"];
+  const BUSH_SPRITES = ["tile058^2", "tile059^2"];
+  const EDITOR_PART_COLUMNS = 18;
+  const EDITOR_PART_ROWS = 13;
+  const EDITOR_PART_FILES = Array.from(
+    { length: EDITOR_PART_COLUMNS * EDITOR_PART_ROWS },
+    (_, index) => {
+      const row = Math.floor(index / EDITOR_PART_COLUMNS) + 1;
+      const column = index % EDITOR_PART_COLUMNS + 1;
+      return `overworld-parts/part-r${String(row).padStart(2, "0")}-c${String(column).padStart(2, "0")}.png`;
+    },
+  );
   const EDITOR_GROUND_ASSETS = GROUND_COLORS.map((_, index) => ({
     label: `Ground ${index + 1}`,
     file: `ground-${index}.png`,
     value: index,
   }));
   const EDITOR_OBJECT_ASSETS = [
-    { label: "Tree", file: "tree.png", value: OBSTACLE_TREE },
-    { label: "Rock", file: "rock.png", value: OBSTACLE_ROCK },
-    { label: "Grass", file: "grass.png", value: OBSTACLE_GRASS },
+    { label: "Tree", value: OBSTACLE_TREE },
+    { label: "Rock", file: `${ROCK_SPRITES[0]}.png`, value: OBSTACLE_ROCK },
+    { label: "Bush", file: `${BUSH_SPRITES[0]}.png`, value: OBSTACLE_BUSH },
     { label: "Stone", file: "stone-block.png", value: OBSTACLE_STONE },
   ];
+  const treeSpawnSettings = { chance: DEFAULT_TREE_SPAWN_CHANCE };
   const EDITOR_ART_SIZE = 128;
   const EDITOR_ART_EXTENSIONS = /\.(avif|bmp|gif|jpe?g|png|svg|webp|tiff?)$/i;
   const WEAPONS = {
@@ -83,10 +101,14 @@
   const editorCloseButton = document.querySelector("#editor-close");
   const terrainPalette = document.querySelector("#terrain-palette");
   const objectPalette = document.querySelector("#object-palette");
+  const treeSpawnChanceInput = document.querySelector("#tree-spawn-chance");
+  const treeSpawnChanceValue = document.querySelector("#tree-spawn-chance-value");
+  const generateNewWorldButton = document.querySelector("#generate-new-world");
   const customPalette = document.querySelector("#custom-palette");
   const hitboxEditor = document.querySelector("#hitbox-editor");
   const hitboxAssetLabel = document.querySelector("#hitbox-asset-label");
   const hitboxEnabledInput = document.querySelector("#hitbox-enabled");
+  const behindPlayerInput = document.querySelector("#behind-player");
   const hitboxPreview = document.querySelector("#hitbox-preview");
   const hitboxPreviewImage = document.querySelector("#hitbox-preview-image");
   const hitboxPreviewBox = document.querySelector("#hitbox-preview-box");
@@ -106,13 +128,10 @@
   const canvasWrap = document.querySelector(".canvas-wrap");
   const spriteImages = new Map();
   const SPRITE_FILES = [
-    "ground-0.png",
-    "ground-1.png",
-    "ground-2.png",
-    "ground-3.png",
-    "tree.png",
-    "rock.png",
-    "grass.png",
+    "tile024.png",
+    ...TREE_SPRITES.map((sprite) => `${sprite}.png`),
+    ...BUSH_SPRITES.map((sprite) => `${sprite}.png`),
+    ...ROCK_SPRITES.map((sprite) => `${sprite}.png`),
     "stone-block.png",
     "enemy.png",
     "flying-enemy.png",
@@ -195,7 +214,7 @@
   let hitboxDragStartX = 0;
   let hitboxDragStartY = 0;
   const editorAssets = new Map();
-  let editorSelection = { type: "object", value: OBSTACLE_TREE, label: "Tree" };
+  let editorSelection = { type: "object", value: OBSTACLE_TREE, label: "Tree", variant: 0 };
 
   function normalizeKey(key) {
     return key.length === 1 ? key.toLowerCase() : key;
@@ -226,6 +245,11 @@
     const random = createRandom(seed);
     const ground = new Uint8Array(MAP_COLUMNS * MAP_ROWS);
     const objects = new Uint8Array(MAP_COLUMNS * MAP_ROWS);
+    const objectVariants = new Uint8Array(MAP_COLUMNS * MAP_ROWS);
+    const treeFootprints = new Uint8Array(MAP_COLUMNS * MAP_ROWS);
+    const trees = new Map();
+    const treeCells = new Map();
+    const treeSpawnChance = treeSpawnSettings.chance;
     const spawnColumn = Math.floor(MAP_COLUMNS / 2);
     const spawnRow = Math.floor(MAP_ROWS / 2);
 
@@ -235,16 +259,52 @@
         const distanceFromSpawn = Math.hypot(column - spawnColumn, row - spawnRow);
         ground[index] = Math.floor(random() * GROUND_COLORS.length);
 
-        if (distanceFromSpawn < 3 || random() > 0.1) {
+        if (treeFootprints[index] || distanceFromSpawn < 3 || random() > 0.1) {
           continue;
         }
 
         const objectRoll = random();
-        objects[index] = objectRoll < 0.42
-          ? OBSTACLE_TREE
-          : objectRoll < 0.72
-            ? OBSTACLE_ROCK
-            : OBSTACLE_GRASS;
+        if (objectRoll < treeSpawnChance) {
+          let canPlaceTree = row >= TREE_HEIGHT_TILES - 1
+            && column + TREE_WIDTH_TILES <= MAP_COLUMNS;
+          if (canPlaceTree) {
+            for (let treeRow = row - TREE_HEIGHT_TILES + 1; treeRow <= row; treeRow += 1) {
+              for (let treeColumn = column; treeColumn < column + TREE_WIDTH_TILES; treeColumn += 1) {
+                const treeIndex = treeRow * MAP_COLUMNS + treeColumn;
+                if (treeFootprints[treeIndex] || objects[treeIndex] !== OBSTACLE_NONE) {
+                  canPlaceTree = false;
+                }
+              }
+            }
+          }
+
+          if (canPlaceTree) {
+            const variant = random() < TREE_GREEN_CHANCE ? 0 : 1;
+            trees.set(index, variant);
+            for (let treeRow = row - TREE_HEIGHT_TILES + 1; treeRow <= row; treeRow += 1) {
+              for (let treeColumn = column; treeColumn < column + TREE_WIDTH_TILES; treeColumn += 1) {
+                const treeIndex = treeRow * MAP_COLUMNS + treeColumn;
+                treeFootprints[treeIndex] = 1;
+                treeCells.set(treeIndex, index);
+                if (treeRow === row) {
+                  objects[treeIndex] = OBSTACLE_TREE;
+                }
+              }
+            }
+            continue;
+          }
+        }
+
+        const nonTreeRoll = objectRoll < treeSpawnChance
+          ? random()
+          : (objectRoll - treeSpawnChance) / (1 - treeSpawnChance);
+        if (nonTreeRoll < 30 / 58) {
+          objects[index] = OBSTACLE_ROCK;
+          objectVariants[index] = Math.floor(random() * ROCK_SPRITES.length);
+        } else {
+          objects[index] = OBSTACLE_BUSH;
+          objectVariants[index] = Math.floor(random() * BUSH_SPRITES.length);
+        }
       }
     }
 
@@ -254,8 +314,9 @@
         const index = row * MAP_COLUMNS + column;
         const distanceFromSpawn = Math.hypot(column - spawnColumn, row - spawnRow);
         if (
-          distanceFromSpawn < 5
-          || (objects[index] !== OBSTACLE_NONE && objects[index] !== OBSTACLE_GRASS)
+          treeFootprints[index]
+          || distanceFromSpawn < 5
+          || objects[index] !== OBSTACLE_NONE
           || random() > 0.000008
         ) {
           continue;
@@ -277,7 +338,15 @@
       }
     }
 
-    return { ground, objects, pickups, customObjects: new Map() };
+    return {
+      ground,
+      objects,
+      objectVariants,
+      trees,
+      treeCells,
+      pickups,
+      customObjects: new Map(),
+    };
   }
 
   function createSeed() {
@@ -350,15 +419,16 @@
     }
 
     const object = world.objects[index];
-    return object === OBSTACLE_TREE
-      ? "#315239"
-      : object === OBSTACLE_ROCK
-        ? "#9ba394"
-        : object === OBSTACLE_STONE
-          ? "#777f75"
-          : object === OBSTACLE_GRASS
-            ? "#a2b96a"
-            : GROUND_COLORS[world.ground[index]];
+    if (object === OBSTACLE_TREE || object === OBSTACLE_BUSH) {
+      return "#315239";
+    }
+    if (object === OBSTACLE_ROCK) {
+      return "#9ba394";
+    }
+    if (object === OBSTACLE_STONE) {
+      return "#777f75";
+    }
+    return GROUND_COLORS[world.ground[index]];
   }
 
   function drawMinimapTile(column, row) {
@@ -378,18 +448,31 @@
       button.setAttribute("aria-pressed", "false");
       button.dataset.editorType = type;
       button.dataset.editorValue = String(asset.value);
-
-      const image = document.createElement("img");
-      image.src = `assets/${asset.file}`;
-      image.alt = "";
-      image.draggable = false;
+      button.dataset.editorVariant = String(asset.variant ?? 0);
 
       const label = document.createElement("span");
       label.textContent = asset.label;
-      button.append(image, label);
-      button.addEventListener("click", () => selectEditorAsset(type, asset.value, asset.label));
+      if (asset.file) {
+        const image = document.createElement("img");
+        image.src = `assets/${asset.file}`;
+        image.alt = "";
+        image.draggable = false;
+        button.append(image);
+      }
+      button.append(label);
+      button.addEventListener("click", () => (
+        selectEditorAsset(type, asset.value, asset.label, asset.variant)
+      ));
       container.append(button);
     }
+  }
+
+  function updateTreeSpawnSettings() {
+    const chance = treeSpawnChanceInput.valueAsNumber;
+    treeSpawnSettings.chance = Number.isFinite(chance)
+      ? Math.max(0, Math.min(100, chance)) / 100
+      : DEFAULT_TREE_SPAWN_CHANCE;
+    treeSpawnChanceValue.value = `${Math.round(treeSpawnSettings.chance * 100)}%`;
   }
 
   function getImageLabel(path) {
@@ -397,7 +480,7 @@
     return filename.replace(/\.[^.]+$/, "");
   }
 
-  function createNormalizedArt(source) {
+  function createNormalizedArt(source, smooth = true) {
     const width = source.width || source.naturalWidth;
     const height = source.height || source.naturalHeight;
     if (!width || !height) {
@@ -408,6 +491,7 @@
     artCanvas.width = EDITOR_ART_SIZE;
     artCanvas.height = EDITOR_ART_SIZE;
     const artContext = artCanvas.getContext("2d");
+    artContext.imageSmoothingEnabled = smooth;
     const scale = Math.min(EDITOR_ART_SIZE / width, EDITOR_ART_SIZE / height);
     const drawWidth = width * scale;
     const drawHeight = height * scale;
@@ -451,6 +535,8 @@
 
   function addCustomAsset(asset) {
     asset.hitbox = { enabled: false, x: 24, y: 24, width: 80, height: 80 };
+    asset.behindPlayer ??= true;
+    asset.tileSize ??= TILE_SIZE;
     editorAssets.set(asset.id, asset);
     const button = document.createElement("button");
     button.className = "asset-button";
@@ -470,6 +556,50 @@
     button.append(image, label);
     button.addEventListener("click", () => selectEditorAsset("custom", asset.id, asset.label));
     customPalette.append(button);
+  }
+
+  function loadEditorPartAssets() {
+    const partRequests = EDITOR_PART_FILES.map((path, index) => new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve({ path, index, image });
+      image.onerror = () => resolve({ path, index });
+      image.src = `assets/${path}`;
+    }));
+
+    Promise.all(partRequests).then((parts) => {
+      let loadedCount = 0;
+      const failures = [];
+      for (const part of parts) {
+        const { path, index, image } = part;
+        if (!image) {
+          console.error(`Unable to load editor part: assets/${path}`);
+          failures.push(path);
+          continue;
+        }
+
+        const row = Math.floor(index / EDITOR_PART_COLUMNS) + 1;
+        const column = index % EDITOR_PART_COLUMNS + 1;
+        try {
+          addCustomAsset({
+            id: `overworld-part-${index + 1}`,
+            label: `Part ${row}-${column}`,
+            path,
+            source: "tileset",
+            tileSize: TILE_SIZE,
+            canvas: createNormalizedArt(image, false),
+          });
+          loadedCount += 1;
+        } catch (error) {
+          console.error(`Unable to prepare editor part assets/${path}:`, error);
+          failures.push(path);
+        }
+      }
+
+      const failureMessage = failures.length > 0
+        ? ` ${failures.length} part${failures.length === 1 ? "" : "s"} failed to load.`
+        : "";
+      customArtStatus.textContent = `${loadedCount} of ${EDITOR_PART_FILES.length} 16 × 16 parts loaded.${failureMessage}`;
+    });
   }
 
   async function loadEditorImages(files, source, replaceFolderAssets = false) {
@@ -573,13 +703,14 @@
     }
   }
 
-  function selectEditorAsset(type, value, label) {
-    editorSelection = { type, value, label };
+  function selectEditorAsset(type, value, label, variant = 0) {
+    editorSelection = { type, value, label, variant };
     editorSelectionLabel.textContent = `Painting: ${label}`;
     eraseToolButton.setAttribute("aria-pressed", "false");
     for (const button of editorPanel.querySelectorAll(".asset-button")) {
       const isSelected = button.dataset.editorType === type
-        && button.dataset.editorValue === String(value);
+        && button.dataset.editorValue === String(value)
+        && button.dataset.editorVariant === String(variant);
       button.setAttribute("aria-pressed", String(isSelected));
     }
     updateHitboxEditor();
@@ -618,6 +749,7 @@
     hitboxAssetLabel.textContent = asset.label;
     hitboxPreviewImage.src = asset.canvas.toDataURL("image/png");
     hitboxEnabledInput.checked = asset.hitbox.enabled;
+    behindPlayerInput.checked = asset.behindPlayer;
     for (const [field, input] of Object.entries(hitboxFields)) {
       input.value = String(asset.hitbox[field]);
     }
@@ -685,6 +817,89 @@
     }
   }
 
+  function forEachTreeFootprintCell(rootIndex, callback) {
+    const baseRow = Math.floor(rootIndex / MAP_COLUMNS);
+    const baseColumn = rootIndex % MAP_COLUMNS;
+    for (let row = baseRow - TREE_HEIGHT_TILES + 1; row <= baseRow; row += 1) {
+      for (let column = baseColumn; column < baseColumn + TREE_WIDTH_TILES; column += 1) {
+        callback(row * MAP_COLUMNS + column, row, column);
+      }
+    }
+  }
+
+  function removeTreeAt(rootIndex) {
+    if (!world.trees.has(rootIndex)) {
+      return;
+    }
+
+    const baseRow = Math.floor(rootIndex / MAP_COLUMNS);
+    forEachTreeFootprintCell(rootIndex, (index, row, column) => {
+      if (world.treeCells.get(index) !== rootIndex) {
+        return;
+      }
+      world.treeCells.delete(index);
+      world.customObjects.delete(index);
+      if (row === baseRow) {
+        world.objects[index] = OBSTACLE_NONE;
+        world.objectVariants[index] = 0;
+      }
+      drawMinimapTile(column, row);
+    });
+    world.trees.delete(rootIndex);
+  }
+
+  function removeTreeCovering(index) {
+    const rootIndex = world.treeCells.get(index);
+    if (rootIndex !== undefined) {
+      removeTreeAt(rootIndex);
+    }
+  }
+
+  function removePickupsAt(column, row) {
+    for (let pickupIndex = pickups.length - 1; pickupIndex >= 0; pickupIndex -= 1) {
+      const pickup = pickups[pickupIndex];
+      if (
+        Math.floor(pickup.x / TILE_SIZE) === column
+        && Math.floor(pickup.y / TILE_SIZE) === row
+      ) {
+        pickups.splice(pickupIndex, 1);
+      }
+    }
+  }
+
+  function placeTreeAt(column, baseRow, variant) {
+    if (
+      baseRow < TREE_HEIGHT_TILES - 1
+      || column + TREE_WIDTH_TILES > MAP_COLUMNS
+    ) {
+      customArtStatus.textContent = "Trees need a 2-by-3 tile area to be placed.";
+      return false;
+    }
+
+    const rootIndex = baseRow * MAP_COLUMNS + column;
+    const existingRoots = new Set();
+    forEachTreeFootprintCell(rootIndex, (index) => {
+      const existingRoot = world.treeCells.get(index);
+      if (existingRoot !== undefined) {
+        existingRoots.add(existingRoot);
+      }
+    });
+    for (const existingRoot of existingRoots) {
+      removeTreeAt(existingRoot);
+    }
+
+    world.trees.set(rootIndex, variant % TREE_SPRITES.length);
+    forEachTreeFootprintCell(rootIndex, (index, row, treeColumn) => {
+      world.treeCells.set(index, rootIndex);
+      world.objects[index] = row === baseRow ? OBSTACLE_TREE : OBSTACLE_NONE;
+      world.objectVariants[index] = 0;
+      world.customObjects.delete(index);
+      removePickupsAt(treeColumn, row);
+      drawMinimapTile(treeColumn, row);
+    });
+    return true;
+  }
+
   function paintEditorTile(column, row) {
     if (column < 0 || row < 0 || column >= MAP_COLUMNS || row >= MAP_ROWS) {
       return;
@@ -693,28 +908,30 @@
     const index = row * MAP_COLUMNS + column;
     if (editorSelection.type === "ground") {
       world.ground[index] = editorSelection.value;
-    } else if (editorSelection.type === "custom") {
-      const asset = editorAssets.get(editorSelection.value);
-      if (!asset) {
-        customArtStatus.textContent = `The selected image "${editorSelection.label}" is no longer loaded.`;
-        return;
-      }
-      world.objects[index] = OBSTACLE_NONE;
-      world.customObjects.set(index, asset);
-    } else if (editorSelection.type === "object") {
-      world.customObjects.delete(index);
-      world.objects[index] = editorSelection.value;
+    } else if (
+      editorSelection.type === "object"
+      && editorSelection.value === OBSTACLE_TREE
+    ) {
+      placeTreeAt(column, row, editorSelection.variant);
+      return;
     } else {
-      world.objects[index] = OBSTACLE_NONE;
-      world.customObjects.delete(index);
-      for (let pickupIndex = pickups.length - 1; pickupIndex >= 0; pickupIndex -= 1) {
-        const pickup = pickups[pickupIndex];
-        if (
-          Math.floor(pickup.x / TILE_SIZE) === column
-          && Math.floor(pickup.y / TILE_SIZE) === row
-        ) {
-          pickups.splice(pickupIndex, 1);
+      removeTreeCovering(index);
+      if (editorSelection.type === "custom") {
+        const asset = editorAssets.get(editorSelection.value);
+        if (!asset) {
+          customArtStatus.textContent = `The selected image "${editorSelection.label}" is no longer loaded.`;
+          return;
         }
+        world.objects[index] = OBSTACLE_NONE;
+        world.customObjects.set(index, asset);
+      } else if (editorSelection.type === "object") {
+        world.customObjects.delete(index);
+        world.objects[index] = editorSelection.value;
+        world.objectVariants[index] = editorSelection.variant;
+      } else {
+        world.objects[index] = OBSTACLE_NONE;
+        world.customObjects.delete(index);
+        removePickupsAt(column, row);
       }
     }
     drawMinimapTile(column, row);
@@ -853,6 +1070,24 @@
     return world.objects[index];
   }
 
+  function isBlockedByCustomAsset(asset, left, top, size, x, y, radius) {
+    if (!asset?.hitbox.enabled) {
+      return false;
+    }
+
+    const hitbox = asset.hitbox;
+    const hitboxScale = size / EDITOR_ART_SIZE;
+    const hitboxLeft = left + hitbox.x * hitboxScale;
+    const hitboxTop = top + hitbox.y * hitboxScale;
+    const hitboxRight = hitboxLeft + hitbox.width * hitboxScale;
+    const hitboxBottom = hitboxTop + hitbox.height * hitboxScale;
+    const closestX = Math.max(hitboxLeft, Math.min(x, hitboxRight));
+    const closestY = Math.max(hitboxTop, Math.min(y, hitboxBottom));
+    const distanceX = x - closestX;
+    const distanceY = y - closestY;
+    return distanceX * distanceX + distanceY * distanceY < radius * radius;
+  }
+
   function isBlockedAt(x, y, jumping = player.isJumping, radius = PLAYER_RADIUS) {
     const minColumn = Math.floor((x - radius) / TILE_SIZE);
     const maxColumn = Math.floor((x + radius) / TILE_SIZE);
@@ -863,25 +1098,24 @@
       for (let column = minColumn; column <= maxColumn; column += 1) {
         const index = row * MAP_COLUMNS + column;
         const customAsset = world.customObjects.get(index);
-        if (customAsset?.hitbox.enabled) {
-          const hitbox = customAsset.hitbox;
-          const hitboxScale = TILE_SIZE / EDITOR_ART_SIZE;
-          const left = column * TILE_SIZE + hitbox.x * hitboxScale;
-          const top = row * TILE_SIZE + hitbox.y * hitboxScale;
-          const right = left + hitbox.width * hitboxScale;
-          const bottom = top + hitbox.height * hitboxScale;
-          const closestX = Math.max(left, Math.min(x, right));
-          const closestY = Math.max(top, Math.min(y, bottom));
-          const distanceX = x - closestX;
-          const distanceY = y - closestY;
-          if (distanceX * distanceX + distanceY * distanceY < radius * radius) {
-            return true;
-          }
+        if (
+          isBlockedByCustomAsset(
+            customAsset,
+            column * TILE_SIZE,
+            row * TILE_SIZE,
+            TILE_SIZE,
+            x,
+            y,
+            radius,
+          )
+        ) {
+          return true;
         }
 
         const obstacle = getObjectAt(column, row);
         if (
           obstacle === OBSTACLE_TREE
+          || obstacle === OBSTACLE_BUSH
           || obstacle === OBSTACLE_STONE
           || (obstacle === OBSTACLE_ROCK && !jumping)
         ) {
@@ -1152,7 +1386,7 @@
     }
 
     if (
-      (object !== OBSTACLE_NONE && object !== OBSTACLE_GRASS)
+      object !== OBSTACLE_NONE
       || player.stones === 0
       || distance > STONE_BUILD_RANGE
       || Math.hypot(tileX - player.x, tileY - player.y) < TILE_SIZE / 2 + PLAYER_RADIUS
@@ -1304,34 +1538,67 @@
     collectPickups();
   }
 
-  function drawTree(x, y) {
-    if (drawSprite("tree", x, y, 48)) {
+  function drawTree(x, y, variant) {
+    const sprite = TREE_SPRITES[variant] || TREE_SPRITES[0];
+    if (drawSprite(
+      sprite,
+      x + TILE_SIZE * TREE_WIDTH_TILES / 2,
+      y + TILE_SIZE * TREE_HEIGHT_TILES / 2,
+      TILE_SIZE * TREE_WIDTH_TILES,
+      TILE_SIZE * TREE_HEIGHT_TILES,
+    )) {
       return;
     }
 
     context.fillStyle = "rgb(23 39 27 / 28%)";
     context.beginPath();
-    context.ellipse(x + 2, y + 9, 13, 7, 0, 0, Math.PI * 2);
+    context.ellipse(x + TILE_SIZE, y + TILE_SIZE * 2.85, 20, 6, 0, 0, Math.PI * 2);
     context.fill();
 
     context.fillStyle = "#79563a";
-    context.fillRect(x - 3, y - 3, 7, 17);
-    context.fillStyle = "#345b37";
+    context.fillRect(x + TILE_SIZE - 5, y + TILE_SIZE * 2, 10, TILE_SIZE);
+    context.fillStyle = variant === 1 ? "#8a4524" : "#345b37";
     context.beginPath();
-    context.arc(x, y - 8, 12, 0, Math.PI * 2);
+    context.ellipse(x + TILE_SIZE, y + TILE_SIZE, 29, 30, 0, 0, Math.PI * 2);
     context.fill();
-    context.fillStyle = "#477348";
+    context.fillStyle = variant === 1 ? "#c26a32" : "#477348";
     context.beginPath();
-    context.arc(x - 4, y - 10, 7, 0, Math.PI * 2);
+    context.ellipse(x + TILE_SIZE, y + TILE_SIZE * 0.75, 20, 20, 0, 0, Math.PI * 2);
     context.fill();
-    context.fillStyle = "#669153";
+    context.fillStyle = variant === 1 ? "#e3a34f" : "#669153";
     context.beginPath();
-    context.arc(x - 3, y - 14, 3, 0, Math.PI * 2);
+    context.ellipse(x + TILE_SIZE - 8, y + TILE_SIZE * 0.55, 8, 9, 0, 0, Math.PI * 2);
     context.fill();
   }
 
-  function drawRock(x, y) {
-    if (drawSprite("rock", x, y, 32)) {
+  function drawTreeCanopy(x, y, variant) {
+    context.save();
+    context.beginPath();
+    context.rect(
+      x,
+      y,
+      TILE_SIZE * TREE_WIDTH_TILES,
+      TILE_SIZE * (TREE_HEIGHT_TILES - 1),
+    );
+    context.clip();
+    drawTree(x, y, variant);
+    context.restore();
+  }
+
+  function drawCustomObject(asset, x, y) {
+    const size = asset.tileSize || TILE_SIZE;
+    context.drawImage(
+      asset.canvas,
+      x - size / 2,
+      y - size / 2,
+      size,
+      size,
+    );
+  }
+
+  function drawRock(x, y, variant) {
+    const sprite = ROCK_SPRITES[variant % ROCK_SPRITES.length];
+    if (drawSprite(sprite, x, y, 32)) {
       return;
     }
 
@@ -1377,22 +1644,17 @@
     context.strokeRect(x - 12, y - 11, 24, 21);
   }
 
-  function drawGrass(x, y) {
-    if (drawSprite("grass", x, y, 24)) {
+  function drawBush(x, y, variant) {
+    if (drawSprite(BUSH_SPRITES[variant % BUSH_SPRITES.length], x, y, 32)) {
       return;
     }
 
-    context.strokeStyle = "#a2b96a";
-    context.lineWidth = 2;
-    context.lineCap = "round";
+    context.fillStyle = "#345b37";
     context.beginPath();
-    context.moveTo(x, y + 7);
-    context.lineTo(x - 4, y - 2);
-    context.moveTo(x + 1, y + 7);
-    context.lineTo(x + 2, y - 5);
-    context.moveTo(x + 2, y + 7);
-    context.lineTo(x + 6, y);
-    context.stroke();
+    context.arc(x - 5, y + 2, 7, 0, Math.PI * 2);
+    context.arc(x + 5, y + 2, 7, 0, Math.PI * 2);
+    context.arc(x, y - 3, 8, 0, Math.PI * 2);
+    context.fill();
   }
 
   function drawHealthBar(x, y, width, health, maxHealth, height = 4) {
@@ -1660,7 +1922,6 @@
       context.textBaseline = "middle";
       context.fillText("You were caught", viewWidth / 2, viewHeight / 2 - 12);
       context.font = "14px ui-sans-serif, system-ui, sans-serif";
-      context.fillText("Generate a new world to play again", viewWidth / 2, viewHeight / 2 + 18);
       context.textAlign = "left";
       context.textBaseline = "alphabetic";
     }
@@ -1959,7 +2220,7 @@
   }
 
   function drawGroundTile(x, y, variant) {
-    if (drawSprite(`ground-${variant}`, x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE)) {
+    if (drawSprite("tile024", x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE)) {
       return;
     }
 
@@ -1983,13 +2244,27 @@
     ));
     currentCameraX = cameraX;
     currentCameraY = cameraY;
-    const startColumn = Math.max(0, Math.floor(cameraX / TILE_SIZE));
-    const startRow = Math.max(0, Math.floor(cameraY / TILE_SIZE));
-    const endColumn = Math.min(MAP_COLUMNS, Math.ceil((cameraX + viewWidth) / TILE_SIZE) + 1);
-    const endRow = Math.min(MAP_ROWS, Math.ceil((cameraY + viewHeight) / TILE_SIZE) + 1);
+    const startColumn = Math.max(
+      0,
+      Math.floor(cameraX / TILE_SIZE) - TREE_WIDTH_TILES + 1,
+    );
+    const startRow = Math.max(
+      0,
+      Math.floor(cameraY / TILE_SIZE) - TREE_HEIGHT_TILES + 1,
+    );
+    const endColumn = Math.min(
+      MAP_COLUMNS,
+      Math.ceil((cameraX + viewWidth) / TILE_SIZE) + TREE_WIDTH_TILES,
+    );
+    const endRow = Math.min(
+      MAP_ROWS,
+      Math.ceil((cameraY + viewHeight) / TILE_SIZE) + TREE_HEIGHT_TILES,
+    );
 
     context.clearRect(0, 0, viewWidth, viewHeight);
 
+    const visibleTrees = [];
+    const foregroundCustomObjects = [];
     for (let row = startRow; row < endRow; row += 1) {
       for (let column = startColumn; column < endColumn; column += 1) {
         const index = row * MAP_COLUMNS + column;
@@ -2003,24 +2278,28 @@
         const objectX = screenX + TILE_SIZE / 2;
         const objectY = screenY + TILE_SIZE / 2;
         const customObject = world.customObjects.get(index);
-        if (customObject) {
-          context.drawImage(
-            customObject.canvas,
-            objectX - TILE_SIZE / 2,
-            objectY - TILE_SIZE / 2,
-            TILE_SIZE,
-            TILE_SIZE,
-          );
-        } else if (object === OBSTACLE_TREE) {
-          drawTree(objectX, objectY);
+        if (world.trees.has(index)) {
+          const variant = world.trees.get(index);
+          const treeY = screenY - TILE_SIZE * (TREE_HEIGHT_TILES - 1);
+          visibleTrees.push({ x: screenX, y: treeY, variant });
+        } else if (customObject) {
+          if (customObject.behindPlayer) {
+            drawCustomObject(customObject, objectX, objectY);
+          } else {
+            foregroundCustomObjects.push({ asset: customObject, x: objectX, y: objectY });
+          }
         } else if (object === OBSTACLE_ROCK) {
-          drawRock(objectX, objectY);
-        } else if (object === OBSTACLE_GRASS) {
-          drawGrass(objectX, objectY);
+          drawRock(objectX, objectY, world.objectVariants[index]);
+        } else if (object === OBSTACLE_BUSH) {
+          drawBush(objectX, objectY, world.objectVariants[index]);
         } else if (object === OBSTACLE_STONE) {
           drawStoneBlock(objectX, objectY);
         }
       }
+    }
+
+    for (const tree of visibleTrees) {
+      drawTree(tree.x, tree.y, tree.variant);
     }
 
     for (const pickup of pickups) {
@@ -2038,6 +2317,12 @@
       drawEnemy(enemy, cameraX, cameraY);
     }
     drawPlayer(player.x - cameraX, player.y - cameraY);
+    for (const tree of visibleTrees) {
+      drawTreeCanopy(tree.x, tree.y, tree.variant);
+    }
+    for (const customObject of foregroundCustomObjects) {
+      drawCustomObject(customObject.asset, customObject.x, customObject.y);
+    }
     drawWorldFog(cameraX, cameraY);
     drawEditorCursor(cameraX, cameraY);
     drawPlayerHealth();
@@ -2228,6 +2513,7 @@
   });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   editorCloseButton.addEventListener("click", () => setEditorOpen(false));
+  generateNewWorldButton.addEventListener("click", startNewWorld);
   eraseToolButton.addEventListener("click", selectEraser);
   hitboxEnabledInput.addEventListener("change", () => {
     const asset = editorAssets.get(editorSelection.value);
@@ -2236,6 +2522,13 @@
     }
     asset.hitbox.enabled = hitboxEnabledInput.checked;
     updateHitboxPreview(asset);
+  });
+  behindPlayerInput.addEventListener("change", () => {
+    const asset = editorAssets.get(editorSelection.value);
+    if (editorSelection.type !== "custom" || !asset) {
+      return;
+    }
+    asset.behindPlayer = behindPlayerInput.checked;
   });
   for (const input of Object.values(hitboxFields)) {
     input.addEventListener("input", updateHitboxFromFields);
@@ -2288,6 +2581,9 @@
   });
   buildEditorPalette(terrainPalette, EDITOR_GROUND_ASSETS, "ground");
   buildEditorPalette(objectPalette, EDITOR_OBJECT_ASSETS, "object");
+  treeSpawnChanceInput.addEventListener("input", updateTreeSpawnSettings);
+  updateTreeSpawnSettings();
+  loadEditorPartAssets();
   selectEditorAsset("object", OBSTACLE_TREE, "Tree");
 
   const resizeObserver = new ResizeObserver(resizeCanvas);
