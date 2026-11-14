@@ -34,6 +34,9 @@
   const SWORD_RANGE = 48;
   const SWORD_COOLDOWN = 0.42;
   const SWORD_SWING_DURATION = 0.28;
+  const UP_ATTACK_STAMINA_COST = PLAYER_MAX_STAMINA / 2;
+  const UP_ATTACK_RADIUS = TILE_SIZE * 3;
+  const ENEMY_STUN_DURATION = 0.5;
   const STONE_BUILD_RANGE = TILE_SIZE * 5;
   const ENEMY_SPAWN_INTERVAL = 5;
   const MAX_ENEMIES = 7;
@@ -168,6 +171,7 @@
     swordSwing: 0,
     swingDuration: SWORD_SWING_DURATION,
     swingWeaponId: "sword",
+    swordSwingType: "normal",
     cauldronIngredients: [],
     healingTowardIngredient: 0,
     damageBoostTime: 0,
@@ -318,6 +322,7 @@
     player.swordSwing = 0;
     player.swingDuration = SWORD_SWING_DURATION;
     player.swingWeaponId = "sword";
+    player.swordSwingType = "normal";
     player.cauldronIngredients = [];
     player.healingTowardIngredient = 0;
     player.damageBoostTime = 0;
@@ -929,6 +934,7 @@
         attackCooldown: 0,
         swingTime: 0,
         swingAngle: 0,
+        stunTime: 0,
       });
       return;
     }
@@ -990,7 +996,7 @@
     return (directionX * facingX + directionY * facingY) / distance >= 0;
   }
 
-  function beginSwordSwing() {
+  function beginSwordSwing(swingType = "normal") {
     const selectedItem = inventory[player.selectedSlot];
     if (
       player.health <= 0
@@ -1004,6 +1010,7 @@
     player.weaponCooldown = weapon.cooldown;
     player.swingDuration = SWORD_SWING_DURATION;
     player.swingWeaponId = selectedItem.id;
+    player.swordSwingType = swingType;
     player.swordSwing = player.swingDuration;
     return true;
   }
@@ -1040,6 +1047,15 @@
       return;
     }
 
+    if (
+      player.shieldRaised
+      && selectedItem?.type === "weapon"
+      && selectedItem.id === "sword"
+    ) {
+      attackUpward();
+      return;
+    }
+
     if (!beginSwordSwing()) {
       return;
     }
@@ -1066,6 +1082,78 @@
       if (enemy.health <= 0) {
         enemies.splice(index, 1);
       }
+    }
+  }
+
+  function attackUpward() {
+    if (
+      player.health <= 0
+      || player.weaponCooldown > 0
+      || (
+        player.infiniteStaminaTime <= 0
+        && player.stamina < UP_ATTACK_STAMINA_COST
+      )
+    ) {
+      return;
+    }
+    if (!beginSwordSwing("up")) {
+      return;
+    }
+
+    if (player.infiniteStaminaTime <= 0) {
+      player.stamina -= UP_ATTACK_STAMINA_COST;
+    }
+    player.stationaryTime = 0;
+
+    const attackX = player.x;
+    const attackY = player.y - TILE_SIZE;
+    const attackVisualY = player.y - getPlayerJumpHeight() - TILE_SIZE;
+    for (let index = enemies.length - 1; index >= 0; index -= 1) {
+      const enemy = enemies[index];
+      if (Math.hypot(enemy.x - attackX, enemy.y - attackY) > UP_ATTACK_RADIUS) {
+        continue;
+      }
+
+      const enemyScreenY = enemy.y - JUMP_HEIGHT + Math.sin(enemy.hoverPhase) * 2;
+      const isInStrikeZone = enemy.airborne
+        && Math.hypot(
+          enemy.x - attackX,
+          enemyScreenY - attackVisualY,
+        ) <= PLAYER_RADIUS + ENEMY_RADIUS;
+      if (isInStrikeZone) {
+        enemy.health = 0;
+        enemies.splice(index, 1);
+        addCauldronIngredient("hit");
+        continue;
+      }
+
+      let knockbackX = enemy.x - player.x;
+      let knockbackY = enemy.y - player.y;
+      const distanceFromPlayer = Math.hypot(knockbackX, knockbackY);
+      if (distanceFromPlayer === 0) {
+        knockbackX = 0;
+        knockbackY = -1;
+      } else {
+        knockbackX /= distanceFromPlayer;
+        knockbackY /= distanceFromPlayer;
+      }
+      const startX = enemy.x;
+      const startY = enemy.y;
+      const steps = Math.ceil(TILE_SIZE / (ENEMY_RADIUS / 2));
+      for (let step = 1; step <= steps; step += 1) {
+        const distance = TILE_SIZE * step / steps;
+        const nextX = startX + knockbackX * distance;
+        const nextY = startY + knockbackY * distance;
+        const isBlocked = enemy.airborne
+          ? isBlockedForFlyingEnemy(nextX, nextY)
+          : isBlockedAt(nextX, nextY, false, ENEMY_RADIUS);
+        if (isBlocked) {
+          break;
+        }
+        enemy.x = nextX;
+        enemy.y = nextY;
+      }
+      enemy.stunTime = ENEMY_STUN_DURATION;
     }
   }
 
@@ -1185,6 +1273,10 @@
       }
       enemy.swingTime = Math.max(0, enemy.swingTime - deltaSeconds);
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - deltaSeconds);
+      enemy.stunTime = Math.max(0, enemy.stunTime - deltaSeconds);
+      if (enemy.stunTime > 0) {
+        continue;
+      }
       const offsetX = player.x - enemy.x;
       const offsetY = player.y - enemy.y;
       const distance = Math.hypot(offsetX, offsetY);
@@ -1881,8 +1973,8 @@
     if (player.swordSwing > 0) {
       const progress = Math.min(1, 1 - player.swordSwing / player.swingDuration);
       const easedProgress = progress * progress * (3 - 2 * progress);
-      const swingStart = facingAngle - 1.3;
-      const swingEnd = facingAngle + 1.3;
+      const swingStart = player.swordSwingType === "up" ? -Math.PI * 0.72 : facingAngle - 1.3;
+      const swingEnd = player.swordSwingType === "up" ? -Math.PI * 0.28 : facingAngle + 1.3;
       swordAngle = swingStart + (swingEnd - swingStart) * easedProgress;
 
       context.save();
