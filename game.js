@@ -1,4 +1,7 @@
-"use strict";
+import { Character } from "./js/entities/Character.js";
+import { ENEMY_MAX_HEALTH, Enemy, FlyingEnemy, GroundEnemy } from "./js/entities/Enemy.js";
+import { TREE_HEIGHT_TILES, TREE_WIDTH_TILES, Tree } from "./js/entities/Tree.js";
+import { WEAPONS } from "./js/entities/Weapon.js";
 
 (() => {
   const TILE_SIZE = 32;
@@ -24,7 +27,6 @@
   const STAMINA_REGEN_RATE = 35;
   const INVENTORY_SLOT_COUNT = 8;
   const MAX_FOOD_STACK = 5;
-  const ENEMY_MAX_HEALTH = 60;
   const ENEMY_RADIUS = 8;
   const ENEMY_SPEED = 58;
   const ENEMY_DAMAGE = 6;
@@ -34,8 +36,6 @@
   const FOV_EDGE_FADE_START = 0.9;
   const JUMP_DURATION = 0.55;
   const JUMP_HEIGHT = 24;
-  const SWORD_RANGE = 48;
-  const SWORD_COOLDOWN = 0.42;
   const SWORD_SWING_DURATION = 0.28;
   const UP_ATTACK_STAMINA_COST = PLAYER_MAX_STAMINA / 2;
   const UP_ATTACK_RADIUS = TILE_SIZE * 3;
@@ -52,8 +52,6 @@
   const OBSTACLE_BUSH = 5;
   const GROUND_COLORS = ["#557b45", "#587f47", "#527641", "#5b8049"];
   const DEFAULT_TREE_SPAWN_CHANCE = 0.42;
-  const TREE_WIDTH_TILES = 2;
-  const TREE_HEIGHT_TILES = 3;
   const TREE_GREEN_CHANCE = 0.8;
   const TREE_SPRITES = ["tree-green", "tree-orange"];
   const ROCK_SPRITES = ["tile092^2", "tile093^2", "tile094^2"];
@@ -82,11 +80,6 @@
   const treeSpawnSettings = { chance: DEFAULT_TREE_SPAWN_CHANCE };
   const EDITOR_ART_SIZE = 128;
   const EDITOR_ART_EXTENSIONS = /\.(avif|bmp|gif|jpe?g|png|svg|webp|tiff?)$/i;
-  const WEAPONS = {
-    sword: { name: "Sword", damage: 35, range: SWORD_RANGE, cooldown: SWORD_COOLDOWN, icon: "S" },
-    spear: { name: "Spear", damage: 25, range: 68, cooldown: 0.5, icon: "P" },
-    axe: { name: "Axe", damage: 50, range: 42, cooldown: 0.68, icon: "A" },
-  };
   const FOODS = {
     berries: { name: "Berries", healing: 20, icon: "B" },
     apple: { name: "Apple", healing: 35, icon: "F" },
@@ -194,36 +187,7 @@
   const knockbackClouds = [];
   const inventory = Array(INVENTORY_SLOT_COUNT).fill(null);
   const pickups = [];
-  const player = {
-    x: 0,
-    y: 0,
-    facingX: 0,
-    facingY: 1,
-    isJumping: false,
-    jumpElapsed: 0,
-    lastSafeX: 0,
-    lastSafeY: 0,
-    health: PLAYER_MAX_HEALTH,
-    stamina: PLAYER_MAX_STAMINA,
-    stationaryTime: 0,
-    dashTime: 0,
-    dashX: 0,
-    dashY: 0,
-    stones: 0,
-    selectedSlot: 0,
-    weaponCooldown: 0,
-    swordSwing: 0,
-    upAttackStuckTime: 0,
-    swingDuration: SWORD_SWING_DURATION,
-    swingWeaponId: "sword",
-    swordSwingType: "normal",
-    cauldronIngredients: [],
-    healingTowardIngredient: 0,
-    damageBoostTime: 0,
-    invincibilityTime: 0,
-    infiniteStaminaTime: 0,
-    shieldRaised: false,
-  };
+  const player = new Character({ swingDuration: SWORD_SWING_DURATION });
   let world;
   let hasActiveWorld = false;
   let activeSaveSlot = null;
@@ -305,29 +269,24 @@
           let canPlaceTree = row >= TREE_HEIGHT_TILES - 1
             && column + TREE_WIDTH_TILES <= MAP_COLUMNS;
           if (canPlaceTree) {
-            for (let treeRow = row - TREE_HEIGHT_TILES + 1; treeRow <= row; treeRow += 1) {
-              for (let treeColumn = column; treeColumn < column + TREE_WIDTH_TILES; treeColumn += 1) {
-                const treeIndex = treeRow * MAP_COLUMNS + treeColumn;
-                if (treeFootprints[treeIndex] || objects[treeIndex] !== OBSTACLE_NONE) {
-                  canPlaceTree = false;
-                }
+            new Tree(index).forEachFootprintCell(MAP_COLUMNS, (treeIndex) => {
+              if (treeFootprints[treeIndex] || objects[treeIndex] !== OBSTACLE_NONE) {
+                canPlaceTree = false;
               }
-            }
+            });
           }
 
           if (canPlaceTree) {
             const variant = random() < TREE_GREEN_CHANCE ? 0 : 1;
-            trees.set(index, variant);
-            for (let treeRow = row - TREE_HEIGHT_TILES + 1; treeRow <= row; treeRow += 1) {
-              for (let treeColumn = column; treeColumn < column + TREE_WIDTH_TILES; treeColumn += 1) {
-                const treeIndex = treeRow * MAP_COLUMNS + treeColumn;
-                treeFootprints[treeIndex] = 1;
-                treeCells.set(treeIndex, index);
-                if (treeRow === row) {
-                  objects[treeIndex] = OBSTACLE_TREE;
-                }
+            const tree = new Tree(index, variant);
+            trees.set(index, tree);
+            tree.forEachFootprintCell(MAP_COLUMNS, (treeIndex, treeRow) => {
+              treeFootprints[treeIndex] = 1;
+              treeCells.set(treeIndex, index);
+              if (treeRow === row) {
+                objects[treeIndex] = OBSTACLE_TREE;
               }
-            }
+            });
             continue;
           }
         }
@@ -405,34 +364,15 @@
     enemies.length = 0;
     knockbackClouds.length = 0;
     drawMinimapTerrain();
-    player.x = Math.floor(MAP_COLUMNS / 2) * TILE_SIZE + TILE_SIZE / 2;
-    player.y = Math.floor(MAP_ROWS / 2) * TILE_SIZE + TILE_SIZE / 2;
-    player.facingX = 0;
-    player.facingY = 1;
-    player.isJumping = false;
-    player.jumpElapsed = 0;
-    player.lastSafeX = player.x;
-    player.lastSafeY = player.y;
-    player.health = PLAYER_MAX_HEALTH;
-    player.stamina = PLAYER_MAX_STAMINA;
-    player.stationaryTime = 0;
-    player.dashTime = 0;
-    player.dashX = 0;
-    player.dashY = 0;
-    player.stones = 0;
-    player.selectedSlot = 0;
-    player.weaponCooldown = 0;
-    player.swordSwing = 0;
-    player.upAttackStuckTime = 0;
-    player.swingDuration = SWORD_SWING_DURATION;
-    player.swingWeaponId = "sword";
-    player.swordSwingType = "normal";
-    player.cauldronIngredients = [];
-    player.healingTowardIngredient = 0;
-    player.damageBoostTime = 0;
-    player.invincibilityTime = 0;
-    player.infiniteStaminaTime = 0;
-    player.shieldRaised = false;
+    const spawnX = Math.floor(MAP_COLUMNS / 2) * TILE_SIZE + TILE_SIZE / 2;
+    const spawnY = Math.floor(MAP_ROWS / 2) * TILE_SIZE + TILE_SIZE / 2;
+    player.reset({
+      x: spawnX,
+      y: spawnY,
+      lastSafeX: spawnX,
+      lastSafeY: spawnY,
+      swingDuration: SWORD_SWING_DURATION,
+    });
     mouseWorldX = player.x + player.facingX * TILE_SIZE;
     mouseWorldY = player.y + player.facingY * TILE_SIZE;
     enemySpawnTimer = 0;
@@ -553,7 +493,7 @@
         ground: world.ground,
         objects: world.objects,
         objectVariants: world.objectVariants,
-        trees: Array.from(world.trees),
+        trees: Array.from(world.trees.values(), (tree) => tree.toSaveEntry()),
         customObjects,
       },
       customAssets: Array.from(savedAssets.values()),
@@ -751,13 +691,18 @@
       ground: new Uint8Array(save.world.ground),
       objects: new Uint8Array(save.world.objects),
       objectVariants: new Uint8Array(save.world.objectVariants),
-      trees: new Map(save.world.trees),
+      trees: new Map(save.world.trees.map((entry) => {
+        const tree = Tree.fromSaveEntry(entry);
+        return [tree.rootIndex, tree];
+      })),
       treeCells: new Map(),
       pickups: save.pickups.map((pickup) => ({ ...pickup })),
       customObjects: new Map(),
     };
-    for (const rootIndex of restoredWorld.trees.keys()) {
-      forEachTreeFootprintCell(rootIndex, (index) => restoredWorld.treeCells.set(index, rootIndex));
+    for (const tree of restoredWorld.trees.values()) {
+      tree.forEachFootprintCell(MAP_COLUMNS, (index) => {
+        restoredWorld.treeCells.set(index, tree.rootIndex);
+      });
     }
     for (const [index, assetKey] of save.world.customObjects || []) {
       const asset = restoredAssets.get(assetKey);
@@ -771,14 +716,14 @@
     pickups.length = 0;
     pickups.push(...restoredWorld.pickups);
     enemies.length = 0;
-    enemies.push(...(save.enemies || []).map((enemy) => ({ ...enemy })));
+    enemies.push(...(save.enemies || []).map(Enemy.from));
     inventory.fill(null);
     for (const [index, item] of (save.player.inventory || []).entries()) {
       if (index < inventory.length && item) {
         inventory[index] = { ...item };
       }
     }
-    Object.assign(player, {
+    player.reset({
       x: save.player.x,
       y: save.player.y,
       facingX: save.player.facingX,
@@ -803,6 +748,7 @@
       invincibilityTime: 0,
       infiniteStaminaTime: 0,
       shieldRaised: false,
+      swingDuration: SWORD_SWING_DURATION,
     });
     mouseWorldX = player.x + player.facingX * TILE_SIZE;
     mouseWorldY = player.y + player.facingY * TILE_SIZE;
@@ -1266,22 +1212,17 @@
   }
 
   function forEachTreeFootprintCell(rootIndex, callback) {
-    const baseRow = Math.floor(rootIndex / MAP_COLUMNS);
-    const baseColumn = rootIndex % MAP_COLUMNS;
-    for (let row = baseRow - TREE_HEIGHT_TILES + 1; row <= baseRow; row += 1) {
-      for (let column = baseColumn; column < baseColumn + TREE_WIDTH_TILES; column += 1) {
-        callback(row * MAP_COLUMNS + column, row, column);
-      }
-    }
+    new Tree(rootIndex).forEachFootprintCell(MAP_COLUMNS, callback);
   }
 
   function removeTreeAt(rootIndex) {
-    if (!world.trees.has(rootIndex)) {
+    const tree = world.trees.get(rootIndex);
+    if (!tree) {
       return;
     }
 
     const baseRow = Math.floor(rootIndex / MAP_COLUMNS);
-    forEachTreeFootprintCell(rootIndex, (index, row, column) => {
+    tree.forEachFootprintCell(MAP_COLUMNS, (index, row, column) => {
       if (world.treeCells.get(index) !== rootIndex) {
         return;
       }
@@ -1336,7 +1277,8 @@
       removeTreeAt(existingRoot);
     }
 
-    world.trees.set(rootIndex, variant % TREE_SPRITES.length);
+    const tree = new Tree(rootIndex, variant % TREE_SPRITES.length);
+    world.trees.set(rootIndex, tree);
     forEachTreeFootprintCell(rootIndex, (index, row, treeColumn) => {
       world.treeCells.set(index, rootIndex);
       world.objects[index] = row === baseRow ? OBSTACLE_TREE : OBSTACLE_NONE;
@@ -1602,17 +1544,17 @@
         continue;
       }
 
-      enemies.push({
+      const EnemyType = airborne ? FlyingEnemy : GroundEnemy;
+      enemies.push(new EnemyType({
         x,
         y,
-        airborne,
         hoverPhase: Math.random() * Math.PI * 2,
         health: ENEMY_MAX_HEALTH,
         attackCooldown: 0,
         swingTime: 0,
         swingAngle: 0,
         stunTime: 0,
-      });
+      }));
       return;
     }
   }
@@ -1914,7 +1856,7 @@
     const object = world.objects[index];
 
     if (object === OBSTACLE_ROCK || object === OBSTACLE_STONE) {
-      if (distance > SWORD_RANGE || !beginSwordSwing()) {
+      if (distance > WEAPONS.sword.range || !beginSwordSwing()) {
         return;
       }
       world.objects[index] = OBSTACLE_NONE;
@@ -2872,10 +2814,10 @@
         const objectX = screenX + TILE_SIZE / 2;
         const objectY = screenY + TILE_SIZE / 2;
         const customObject = world.customObjects.get(index);
-        if (world.trees.has(index)) {
-          const variant = world.trees.get(index);
+        const tree = world.trees.get(index);
+        if (tree) {
           const treeY = screenY - TILE_SIZE * (TREE_HEIGHT_TILES - 1);
-          visibleTrees.push({ x: screenX, y: treeY, variant });
+          visibleTrees.push({ x: screenX, y: treeY, variant: tree.variant });
         } else if (customObject) {
           if (customObject.behindPlayer) {
             drawCustomObject(customObject, objectX, objectY);
