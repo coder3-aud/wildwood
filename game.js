@@ -39,6 +39,8 @@
   const SWORD_SWING_DURATION = 0.28;
   const UP_ATTACK_STAMINA_COST = PLAYER_MAX_STAMINA / 2;
   const UP_ATTACK_RADIUS = TILE_SIZE * 3;
+  const UP_ATTACK_STUCK_DURATION = 0.52;
+  const KNOCKBACK_CLOUD_DURATION = 0.42;
   const ENEMY_STUN_DURATION = 0.5;
   const STONE_BUILD_RANGE = TILE_SIZE * 5;
   const ENEMY_SPAWN_INTERVAL = 5;
@@ -178,6 +180,7 @@
 
   const keysDown = new Set();
   const enemies = [];
+  const knockbackClouds = [];
   const inventory = Array(INVENTORY_SLOT_COUNT).fill(null);
   const pickups = [];
   const player = {
@@ -199,6 +202,7 @@
     selectedSlot: 0,
     weaponCooldown: 0,
     swordSwing: 0,
+    upAttackStuckTime: 0,
     swingDuration: SWORD_SWING_DURATION,
     swingWeaponId: "sword",
     swordSwingType: "normal",
@@ -386,6 +390,7 @@
     inventory.fill(null);
     inventory[0] = { type: "weapon", id: "sword" };
     enemies.length = 0;
+    knockbackClouds.length = 0;
     drawMinimapTerrain();
     player.x = Math.floor(MAP_COLUMNS / 2) * TILE_SIZE + TILE_SIZE / 2;
     player.y = Math.floor(MAP_ROWS / 2) * TILE_SIZE + TILE_SIZE / 2;
@@ -405,6 +410,7 @@
     player.selectedSlot = 0;
     player.weaponCooldown = 0;
     player.swordSwing = 0;
+    player.upAttackStuckTime = 0;
     player.swingDuration = SWORD_SWING_DURATION;
     player.swingWeaponId = "sword";
     player.swordSwingType = "normal";
@@ -1710,6 +1716,7 @@
       return;
     }
 
+    player.upAttackStuckTime = SWORD_SWING_DURATION + UP_ATTACK_STUCK_DURATION;
     if (player.infiniteStaminaTime <= 0) {
       player.stamina -= UP_ATTACK_STAMINA_COST;
     }
@@ -1764,6 +1771,12 @@
         enemy.y = nextY;
       }
       enemy.stunTime = ENEMY_STUN_DURATION;
+      knockbackClouds.push({
+        x: enemy.x,
+        y: enemy.y,
+        airborne: enemy.airborne,
+        time: 0,
+      });
     }
   }
 
@@ -1929,6 +1942,7 @@
   function updatePlayer(deltaSeconds) {
     player.weaponCooldown = Math.max(0, player.weaponCooldown - deltaSeconds);
     player.swordSwing = Math.max(0, player.swordSwing - deltaSeconds);
+    player.upAttackStuckTime = Math.max(0, player.upAttackStuckTime - deltaSeconds);
     player.damageBoostTime = Math.max(0, player.damageBoostTime - deltaSeconds);
     player.invincibilityTime = Math.max(0, player.invincibilityTime - deltaSeconds);
     player.infiniteStaminaTime = Math.max(0, player.infiniteStaminaTime - deltaSeconds);
@@ -2004,6 +2018,16 @@
       }
     }
     collectPickups();
+  }
+
+  function updateKnockbackClouds(deltaSeconds) {
+    for (let index = knockbackClouds.length - 1; index >= 0; index -= 1) {
+      const cloud = knockbackClouds[index];
+      cloud.time += deltaSeconds;
+      if (cloud.time >= KNOCKBACK_CLOUD_DURATION) {
+        knockbackClouds.splice(index, 1);
+      }
+    }
   }
 
   function drawTree(x, y, variant) {
@@ -2598,9 +2622,12 @@
       context.restore();
     }
 
+    const isUpAttackStuck = player.swordSwing <= 0 && player.upAttackStuckTime > 0;
     const activeWeapon = player.swordSwing > 0
       ? WEAPONS[player.swingWeaponId]
-      : getSelectedWeapon();
+      : isUpAttackStuck
+        ? WEAPONS.sword
+        : getSelectedWeapon();
     if (!activeWeapon) {
       return;
     }
@@ -2632,13 +2659,20 @@
         context.stroke();
       }
       context.restore();
+    } else if (isUpAttackStuck) {
+      swordAngle = -Math.PI / 2;
     }
 
+    if (isUpAttackStuck) {
+      context.save();
+      context.globalAlpha = Math.min(1, player.upAttackStuckTime / 0.12);
+    }
     const handX = screenX + Math.cos(swordAngle) * 9;
-    const handY = screenY + 1 + Math.sin(swordAngle) * 9;
+    const weaponBaseY = screenY + (isUpAttackStuck ? -18 : 1);
+    const handY = weaponBaseY + Math.sin(swordAngle) * 9;
     const weaponLength = 31 * (activeWeapon.range / WEAPONS.sword.range);
     const tipX = screenX + Math.cos(swordAngle) * weaponLength;
-    const tipY = screenY + 1 + Math.sin(swordAngle) * weaponLength;
+    const tipY = weaponBaseY + Math.sin(swordAngle) * weaponLength;
     context.strokeStyle = activeWeapon === WEAPONS.axe ? "#8b6842" : "#e3e7d2";
     context.lineWidth = activeWeapon === WEAPONS.axe ? 5 : 4;
     context.lineCap = "round";
@@ -2665,6 +2699,37 @@
       context.moveTo(handX + Math.cos(swordAngle + Math.PI / 2), handY + Math.sin(swordAngle + Math.PI / 2));
       context.lineTo(tipX + Math.cos(swordAngle + Math.PI / 2), tipY + Math.sin(swordAngle + Math.PI / 2));
       context.stroke();
+    }
+    if (isUpAttackStuck) {
+      context.restore();
+    }
+  }
+
+  function drawKnockbackClouds(cameraX, cameraY) {
+    for (const cloud of knockbackClouds) {
+      if (
+        cloud.x < cameraX - TILE_SIZE
+        || cloud.x > cameraX + viewWidth + TILE_SIZE
+        || cloud.y < cameraY - TILE_SIZE
+        || cloud.y > cameraY + viewHeight + TILE_SIZE
+      ) {
+        continue;
+      }
+
+      const progress = cloud.time / KNOCKBACK_CLOUD_DURATION;
+      const spread = 1 + progress * 0.8;
+      const x = cloud.x - cameraX;
+      const y = cloud.y - cameraY - (cloud.airborne ? JUMP_HEIGHT : 0);
+      context.save();
+      context.globalAlpha = (1 - progress) * 0.72;
+      context.fillStyle = "#d7d0b5";
+      context.beginPath();
+      context.ellipse(x, y + 3, 11 * spread, 5 * spread, 0, 0, Math.PI * 2);
+      context.ellipse(x - 7 * spread, y, 5 * spread, 5 * spread, 0, 0, Math.PI * 2);
+      context.ellipse(x + 7 * spread, y - 1, 6 * spread, 5 * spread, 0, 0, Math.PI * 2);
+      context.ellipse(x, y - 4 * spread, 6 * spread, 6 * spread, 0, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
     }
   }
 
@@ -2781,6 +2846,7 @@
       }
     }
 
+    drawKnockbackClouds(cameraX, cameraY);
     for (const enemy of enemies) {
       drawEnemy(enemy, cameraX, cameraY);
     }
@@ -2830,6 +2896,7 @@
     if (world && !editorOpen && !saveMenuOpen) {
       updatePlayer(deltaSeconds);
       updateEnemies(deltaSeconds);
+      updateKnockbackClouds(deltaSeconds);
     }
     if (world) {
       drawWorld(timestamp);
