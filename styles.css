@@ -22,8 +22,221 @@ body {
     #111a15;
 }
 
+body.save-selection-active::before {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  background: rgb(10 17 13 / 82%);
+  content: "";
+  backdrop-filter: blur(5px);
+}
+
 button {
   font: inherit;
+}
+
+#start-page[hidden],
+#settings-page[hidden],
+#credits-page[hidden],
+#game-shell[hidden] {
+  display: none;
+}
+
+.start-page {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  min-height: 100svh;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgb(71 104 66 / 33%), transparent 43%),
+    radial-gradient(ellipse at 50% 100%, rgb(45 71 48 / 55%), transparent 55%),
+    #111a15;
+}
+
+.start-page::before,
+.start-page::after {
+  position: absolute;
+  right: -10%;
+  bottom: -34%;
+  left: -10%;
+  height: 56%;
+  border-radius: 50% 50% 0 0;
+  background: linear-gradient(180deg, rgb(45 72 49 / 30%), rgb(24 42 30 / 75%));
+  content: "";
+  pointer-events: none;
+}
+
+.start-page::after {
+  right: -24%;
+  bottom: -43%;
+  left: -24%;
+  height: 58%;
+  background: linear-gradient(180deg, rgb(31 54 38 / 44%), #111a15);
+}
+
+.start-page-shell {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(1120px, calc(100% - 48px));
+  min-height: 100vh;
+  min-height: 100svh;
+  grid-template-rows: auto 1fr auto;
+  margin: 0 auto;
+  padding: clamp(30px, 7vh, 68px) 0 26px;
+}
+
+.start-brand {
+  text-align: center;
+}
+
+.start-brand .eyebrow {
+  margin-bottom: 12px;
+}
+
+.start-brand h1 {
+  color: #f0f5e9;
+  font-size: clamp(3.2rem, 8vw, 5.7rem);
+  text-shadow: 0 12px 40px rgb(0 0 0 / 28%);
+}
+
+.start-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 1.15fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 30px;
+}
+
+.start-side-button {
+  display: grid;
+  min-height: 112px;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid rgb(205 224 188 / 19%);
+  border-radius: 14px;
+  color: #dce8d7;
+  background: rgb(26 40 30 / 66%);
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.start-side-button:hover {
+  transform: translateY(-2px);
+  border-color: #9ab77e;
+  background: rgb(44 64 44 / 88%);
+}
+
+.start-side-icon {
+  color: #c1d5af;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.start-book-icon {
+  font-size: 2rem;
+}
+
+.start-play {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+}
+
+.start-prompt {
+  margin: 0;
+  color: #b6c7ad;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+}
+
+.play-button {
+  width: min(100%, 260px);
+  min-height: 76px;
+  border: 1px solid #d2e6b3;
+  border-radius: 999px;
+  color: #17251c;
+  background: linear-gradient(135deg, #d2e6b3, #a9c783);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 26%), inset 0 1px 0 rgb(255 255 255 / 55%);
+  font-size: 1.1rem;
+  font-weight: 850;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+
+.play-button:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 34%), inset 0 1px 0 rgb(255 255 255 / 55%);
+  filter: brightness(1.06);
+}
+
+.start-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 20px;
+  border-top: 1px solid rgb(205 224 188 / 12%);
+  color: #849382;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.destination-page {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100svh;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(ellipse at 50% 35%, rgb(44 68 48 / 25%), transparent 58%),
+    #111a15;
+}
+
+.destination-card {
+  width: min(520px, 100%);
+  padding: clamp(24px, 5vw, 44px);
+  border: 1px solid #35443a;
+  border-radius: 14px;
+  background: #1b2820;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 25%);
+}
+
+.destination-back {
+  margin: 0 0 42px;
+  padding: 8px 11px;
+  border: 1px solid #465748;
+  border-radius: 7px;
+  color: #dce8d7;
+  background: #29382d;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.destination-back:hover {
+  border-color: #98b47e;
+  background: #344735;
+}
+
+.destination-card h1 {
+  margin: 0;
+  color: #f0f5e9;
+  font-size: clamp(2rem, 7vw, 3rem);
+}
+
+.destination-placeholder {
+  margin: 18px 0 0;
+  color: #a9b5a7;
+  font-size: 0.9rem;
+  line-height: 1.6;
 }
 
 .game-shell {
@@ -126,14 +339,65 @@ h1 {
   cursor: crosshair;
 }
 
-.save-menu {
+.pause-menu {
   position: absolute;
   z-index: 4;
   top: 50%;
   left: 50%;
   display: grid;
+  width: min(360px, calc(100% - 32px));
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid rgb(205 224 188 / 24%);
+  border-radius: 14px;
+  background: rgb(20 32 23 / 97%);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 48%);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(12px);
+}
+
+.pause-menu[hidden] {
+  display: none;
+}
+
+.pause-menu h2 {
+  margin: -8px 0 0;
+  color: #f0f5e9;
+  font-size: 1.5rem;
+  letter-spacing: -0.04em;
+}
+
+.pause-menu-description {
+  margin: -8px 0 0;
+  color: #a9b5a7;
+  font-size: 0.78rem;
+}
+
+.pause-menu-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.pause-menu-hint {
+  margin: 0;
+  color: #95a494;
+  font-size: 0.68rem;
+}
+
+.pause-menu-hint .keycap {
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
+.save-menu {
+  position: fixed;
+  z-index: 11;
+  top: 50%;
+  left: 50%;
+  display: grid;
   width: min(460px, calc(100% - 32px));
-  max-height: calc(100% - 32px);
+  max-height: calc(100vh - 32px);
   gap: 16px;
   overflow: auto;
   padding: 22px;
@@ -716,6 +980,38 @@ h1 {
 }
 
 @media (max-width: 600px) {
+  .start-page-shell {
+    width: min(100% - 32px, 1040px);
+    padding: 38px 0 20px;
+  }
+
+  .start-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-content: center;
+  }
+
+  .start-play {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    margin-bottom: 24px;
+  }
+
+  .start-side-button {
+    min-height: 96px;
+    padding: 12px 8px;
+    font-size: 0.78rem;
+  }
+
+  .play-button {
+    min-height: 68px;
+  }
+
+  .start-footer {
+    font-size: 0.57rem;
+    letter-spacing: 0.06em;
+  }
+
   .game-shell {
     width: min(100% - 24px, 1040px);
     padding-top: 30px;

@@ -102,7 +102,18 @@
   worldFog.height = MAP_ROWS * TILE_SIZE * FOG_SCALE;
   const worldFogContext = worldFog.getContext("2d");
   worldFogContext.imageSmoothingEnabled = true;
+  const startPage = document.querySelector("#start-page");
+  const settingsPage = document.querySelector("#settings-page");
+  const creditsPage = document.querySelector("#credits-page");
+  const gameShell = document.querySelector("#game-shell");
+  const playButton = document.querySelector("#play-button");
+  const openSettingsPageButton = document.querySelector("#open-settings-page");
+  const openCreditsPageButton = document.querySelector("#open-credits-page");
+  const returnToTitleButtons = Array.from(document.querySelectorAll("[data-return-to-title]"));
   const coordinatesLabel = document.querySelector("#player-coordinates");
+  const pauseMenu = document.querySelector("#pause-menu");
+  const pauseResumeButton = document.querySelector("#pause-resume");
+  const pauseSaveLoadButton = document.querySelector("#pause-save-load");
   const saveMenu = document.querySelector("#save-menu");
   const saveMenuOpenButton = document.querySelector("#save-menu-open");
   const saveMenuCloseButton = document.querySelector("#save-menu-close");
@@ -214,7 +225,9 @@
   let activeSaveSlot = null;
   let selectedSaveSlot = 0;
   let saveSlotMetadata = Array(SAVE_SLOT_COUNT).fill(null);
-  let saveMenuOpen = true;
+  let pauseMenuOpen = false;
+  let saveMenuOpen = false;
+  let returnToPauseAfterSaveMenu = false;
   let viewWidth = 0;
   let viewHeight = 0;
   let currentCameraX = 0;
@@ -574,7 +587,11 @@
     }
     loadSaveButton.disabled = !saveSlotMetadata[selectedSaveSlot];
     saveCurrentWorldButton.disabled = !hasActiveWorld;
-    saveMenuCloseButton.hidden = !hasActiveWorld;
+    saveMenuCloseButton.hidden = false;
+    saveMenuCloseButton.setAttribute(
+      "aria-label",
+      hasActiveWorld ? "Close save menu" : "Back to start page",
+    );
   }
 
   async function refreshSaveSlots() {
@@ -590,20 +607,62 @@
   }
 
   function setSaveMenuOpen(open) {
-    if (!open && !hasActiveWorld) {
-      return;
-    }
     saveMenuOpen = open;
     saveMenu.hidden = !open;
+    document.body.classList.toggle("save-selection-active", open);
     if (open) {
       selectedSaveSlot = activeSaveSlot ?? selectedSaveSlot;
       updateSaveMenu();
+      saveSlotButtons[selectedSaveSlot]?.focus({ preventScroll: true });
       refreshSaveSlots().catch((error) => {
         saveMenuStatus.textContent = `Unable to load save slots: ${error.message}`;
       });
     } else {
       keysDown.clear();
       player.shieldRaised = false;
+      if (returnToPauseAfterSaveMenu) {
+        returnToPauseAfterSaveMenu = false;
+        setPauseMenuOpen(true);
+      } else if (hasActiveWorld) {
+        gameShell.hidden = false;
+        canvas.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  function showStartPage() {
+    saveMenuOpen = false;
+    saveMenu.hidden = true;
+    document.body.classList.remove("save-selection-active");
+    pauseMenuOpen = false;
+    pauseMenu.hidden = true;
+    gameShell.hidden = true;
+    settingsPage.hidden = true;
+    creditsPage.hidden = true;
+    startPage.hidden = false;
+    keysDown.clear();
+    player.shieldRaised = false;
+    playButton.focus({ preventScroll: true });
+  }
+
+  function openGameSelection() {
+    startPage.hidden = true;
+    settingsPage.hidden = true;
+    creditsPage.hidden = true;
+    setSaveMenuOpen(true);
+  }
+
+  function setPauseMenuOpen(open) {
+    if (open && (!hasActiveWorld || saveMenuOpen)) {
+      return;
+    }
+    pauseMenuOpen = open;
+    pauseMenu.hidden = !open;
+    keysDown.clear();
+    player.shieldRaised = false;
+    if (open) {
+      pauseResumeButton.focus({ preventScroll: true });
+    } else {
       canvas.focus({ preventScroll: true });
     }
   }
@@ -756,6 +815,7 @@
     try {
       await restoreSaveSlot(slot);
       saveMenuStatus.textContent = `Loaded Save ${slot + 1}.`;
+      returnToPauseAfterSaveMenu = false;
       setSaveMenuOpen(false);
     } catch (error) {
       saveMenuStatus.textContent = `Unable to load this world: ${error.message}`;
@@ -775,6 +835,7 @@
       activeSaveSlot = slot;
       startNewWorld();
       if (await saveCurrentWorldToSelectedSlot()) {
+        returnToPauseAfterSaveMenu = false;
         setSaveMenuOpen(false);
       }
     } catch (error) {
@@ -2827,7 +2888,7 @@
       : Math.min((timestamp - previousFrame) / 1000, 0.05);
     previousFrame = timestamp;
 
-    if (world && !editorOpen && !saveMenuOpen) {
+    if (world && !editorOpen && !saveMenuOpen && !pauseMenuOpen) {
       updatePlayer(deltaSeconds);
       updateEnemies(deltaSeconds);
     }
@@ -2840,10 +2901,34 @@
   window.addEventListener("keydown", (event) => {
     const key = event.key;
     if (saveMenuOpen) {
-      if (key === "Escape" && hasActiveWorld) {
+      if (key === "Escape") {
         event.preventDefault();
-        setSaveMenuOpen(false);
+        if (hasActiveWorld) {
+          setSaveMenuOpen(false);
+        } else {
+          showStartPage();
+        }
       }
+      return;
+    }
+    if (!hasActiveWorld) {
+      return;
+    }
+    if (pauseMenuOpen) {
+      if (key === "Escape" && !event.repeat) {
+        event.preventDefault();
+        setPauseMenuOpen(false);
+      }
+      return;
+    }
+    if (editorOpen && key === "Escape") {
+      event.preventDefault();
+      setEditorOpen(false);
+      return;
+    }
+    if (key === "Escape" && world && !event.repeat) {
+      event.preventDefault();
+      setPauseMenuOpen(true);
       return;
     }
     if (normalizeKey(key) === "p" && !event.repeat) {
@@ -2852,10 +2937,6 @@
       return;
     }
     if (editorOpen) {
-      if (key === "Escape") {
-        event.preventDefault();
-        setEditorOpen(false);
-      }
       return;
     }
     if (event.target instanceof HTMLElement && event.target.closest("button, input, textarea, select")) {
@@ -2961,7 +3042,7 @@
     editorLastRow = null;
   });
   canvas.addEventListener("mousedown", (event) => {
-    if (saveMenuOpen) {
+    if (saveMenuOpen || pauseMenuOpen) {
       return;
     }
     if (event.button !== 0 && event.button !== 2) {
@@ -2992,8 +3073,35 @@
     editorLastRow = null;
   });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
-  saveMenuOpenButton.addEventListener("click", () => setSaveMenuOpen(true));
-  saveMenuCloseButton.addEventListener("click", () => setSaveMenuOpen(false));
+  playButton.addEventListener("click", openGameSelection);
+  openSettingsPageButton.addEventListener("click", () => {
+    startPage.hidden = true;
+    settingsPage.hidden = false;
+  });
+  openCreditsPageButton.addEventListener("click", () => {
+    startPage.hidden = true;
+    creditsPage.hidden = false;
+  });
+  returnToTitleButtons.forEach((button) => {
+    button.addEventListener("click", showStartPage);
+  });
+  function openSaveMenuFromCurrentContext() {
+    if (pauseMenuOpen) {
+      returnToPauseAfterSaveMenu = true;
+      setPauseMenuOpen(false);
+    }
+    setSaveMenuOpen(true);
+  }
+  saveMenuOpenButton.addEventListener("click", openSaveMenuFromCurrentContext);
+  pauseResumeButton.addEventListener("click", () => setPauseMenuOpen(false));
+  pauseSaveLoadButton.addEventListener("click", openSaveMenuFromCurrentContext);
+  saveMenuCloseButton.addEventListener("click", () => {
+    if (hasActiveWorld) {
+      setSaveMenuOpen(false);
+    } else {
+      showStartPage();
+    }
+  });
   saveSlotButtons.forEach((button) => {
     button.addEventListener("click", () => {
       selectedSaveSlot = Number(button.dataset.saveSlot);
