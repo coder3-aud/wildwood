@@ -16,7 +16,10 @@
           <h1>Wildwood</h1>
           <p class="subtitle">A little world to explore</p>
         </div>
-        <p class="editor-shortcut"><span class="keycap">P</span> Open map editor</p>
+        <div class="header-actions">
+          <button id="save-menu-open" class="save-menu-open" type="button">Save / Load</button>
+          <p class="editor-shortcut"><span class="keycap">P</span> Open map editor</p>
+        </div>
       </header>
 
       <section class="game-panel" aria-label="Game">
@@ -31,6 +34,36 @@
             </canvas>
             <output id="player-coordinates" class="player-coordinates" aria-label="Player tile coordinates">X 1251 · Y 1001</output>
           </aside>
+          <section id="save-menu" class="save-menu" aria-labelledby="save-menu-title" aria-modal="true" role="dialog">
+            <header class="save-menu-header">
+              <div>
+                <p class="editor-eyebrow">YOUR WORLDS</p>
+                <h2 id="save-menu-title">Choose a save slot</h2>
+              </div>
+              <button id="save-menu-close" class="editor-close" type="button" aria-label="Close save menu" hidden>×</button>
+            </header>
+            <p class="save-menu-description">Create a new world or continue from one of your three save slots. Your map edits, placed art, and player position are saved in this browser.</p>
+            <div class="save-slots" role="group" aria-label="Save slots">
+              <button class="save-slot" type="button" data-save-slot="0" aria-pressed="true">
+                <strong>Save 1</strong>
+                <span class="save-slot-detail">Empty slot</span>
+              </button>
+              <button class="save-slot" type="button" data-save-slot="1" aria-pressed="false">
+                <strong>Save 2</strong>
+                <span class="save-slot-detail">Empty slot</span>
+              </button>
+              <button class="save-slot" type="button" data-save-slot="2" aria-pressed="false">
+                <strong>Save 3</strong>
+                <span class="save-slot-detail">Empty slot</span>
+              </button>
+            </div>
+            <div class="save-menu-actions">
+              <button id="load-save" class="save-action" type="button" disabled>Continue world</button>
+              <button id="create-save-world" class="save-action save-action-secondary" type="button">Create new world</button>
+              <button id="save-current-world" class="save-action save-action-secondary" type="button" disabled>Save current world</button>
+            </div>
+            <output id="save-menu-status" class="save-menu-status" aria-live="polite">Loading save slots…</output>
+          </section>
           <aside id="editor-panel" class="editor-panel" aria-label="Map editor" hidden>
             <header class="editor-header">
               <div>
@@ -108,6 +141,7 @@
           <p class="hint"><span class="keycap">SHIFT</span> to dash (¼ stamina)</p>
           <p class="hint"><span class="keycap">E</span> hold shield toward mouse to block attacks from the front</p>
           <p class="hint"><span class="keycap">P</span> open map editor</p>
+          <p class="hint">Use Save / Load to keep your world in one of three slots</p>
           <p class="hint">Left click to attack in the direction you are moving (or last moved)</p>
           <p class="hint">With the sword, hold <span class="keycap">E</span> and left-click to strike one block up (½ stamina), one-shot airborne enemies there, and knock back and stun enemies within three blocks</p>
           <p class="hint">Right click rocks to mine; right click ground to build</p>

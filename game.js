@@ -4,6 +4,9 @@
   const TILE_SIZE = 32;
   const MAP_COLUMNS = 2500;
   const MAP_ROWS = 2000;
+  const SAVE_SLOT_COUNT = 3;
+  const SAVE_DATABASE_NAME = "wildwood-saves";
+  const SAVE_DATABASE_VERSION = 1;
   const PLAYER_RADIUS = 10;
   const PLAYER_SPEED = 190;
   const PLAYER_MAX_HEALTH = 100;
@@ -100,6 +103,14 @@
   const worldFogContext = worldFog.getContext("2d");
   worldFogContext.imageSmoothingEnabled = true;
   const coordinatesLabel = document.querySelector("#player-coordinates");
+  const saveMenu = document.querySelector("#save-menu");
+  const saveMenuOpenButton = document.querySelector("#save-menu-open");
+  const saveMenuCloseButton = document.querySelector("#save-menu-close");
+  const saveSlotButtons = Array.from(document.querySelectorAll("[data-save-slot]"));
+  const loadSaveButton = document.querySelector("#load-save");
+  const createSaveWorldButton = document.querySelector("#create-save-world");
+  const saveCurrentWorldButton = document.querySelector("#save-current-world");
+  const saveMenuStatus = document.querySelector("#save-menu-status");
   const editorPanel = document.querySelector("#editor-panel");
   const editorCloseButton = document.querySelector("#editor-close");
   const terrainPalette = document.querySelector("#terrain-palette");
@@ -199,6 +210,11 @@
     shieldRaised: false,
   };
   let world;
+  let hasActiveWorld = false;
+  let activeSaveSlot = null;
+  let selectedSaveSlot = 0;
+  let saveSlotMetadata = Array(SAVE_SLOT_COUNT).fill(null);
+  let saveMenuOpen = true;
   let viewWidth = 0;
   let viewHeight = 0;
   let currentCameraX = 0;
@@ -404,6 +420,366 @@
     resetMinimapExploration();
     spawnEnemy();
     spawnEnemy(true);
+    hasActiveWorld = true;
+    updateSaveMenu();
+  }
+
+  function openSaveDatabase() {
+    if (!window.indexedDB) {
+      return Promise.reject(new Error("This browser does not support local save files."));
+    }
+
+    return new Promise((resolve, reject) => {
+      const request = window.indexedDB.open(SAVE_DATABASE_NAME, SAVE_DATABASE_VERSION);
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains("saves")) {
+          database.createObjectStore("saves", { keyPath: "slot" });
+        }
+        if (!database.objectStoreNames.contains("metadata")) {
+          database.createObjectStore("metadata", { keyPath: "slot" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Unable to open local save files."));
+      request.onblocked = () => reject(new Error("Save files are blocked by another open game tab."));
+    });
+  }
+
+  async function getSaveSlotMetadata() {
+    const database = await openSaveDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction("metadata", "readonly");
+      const request = transaction.objectStore("metadata").getAll();
+      request.onsuccess = () => {
+        resolve(request.result);
+        database.close();
+      };
+      request.onerror = () => {
+        database.close();
+        reject(request.error || new Error("Unable to read save slots."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Unable to read save slots."));
+      };
+    });
+  }
+
+  async function readSaveSlot(slot) {
+    const database = await openSaveDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction("saves", "readonly");
+      const request = transaction.objectStore("saves").get(slot);
+      request.onsuccess = () => {
+        resolve(request.result);
+        database.close();
+      };
+      request.onerror = () => {
+        database.close();
+        reject(request.error || new Error("Unable to read this save file."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Unable to read this save file."));
+      };
+    });
+  }
+
+  async function writeSaveSlot(slot, save, metadata) {
+    const database = await openSaveDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction(["saves", "metadata"], "readwrite");
+      transaction.objectStore("saves").put(save);
+      transaction.objectStore("metadata").put(metadata);
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error("Unable to write this save file."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Unable to write this save file."));
+      };
+    });
+  }
+
+  function createSaveSnapshot(slot) {
+    const savedAssets = new Map();
+    const customObjects = Array.from(world.customObjects, ([index, asset]) => {
+      if (!savedAssets.has(asset.id)) {
+        const key = `asset-${savedAssets.size}`;
+        savedAssets.set(asset.id, {
+          key,
+          label: asset.label,
+          path: asset.path || "",
+          source: asset.source || "save",
+          behindPlayer: asset.behindPlayer,
+          hitbox: { ...asset.hitbox },
+          image: asset.canvas.toDataURL("image/png"),
+        });
+      }
+      return [index, savedAssets.get(asset.id).key];
+    });
+    const now = Date.now();
+
+    return {
+      slot,
+      version: 1,
+      savedAt: now,
+      world: {
+        ground: world.ground,
+        objects: world.objects,
+        objectVariants: world.objectVariants,
+        trees: Array.from(world.trees),
+        customObjects,
+      },
+      customAssets: Array.from(savedAssets.values()),
+      pickups: pickups.map((pickup) => ({ ...pickup })),
+      enemies: enemies.map((enemy) => ({ ...enemy })),
+      player: {
+        x: player.x,
+        y: player.y,
+        facingX: player.facingX,
+        facingY: player.facingY,
+        health: player.health,
+        stamina: player.stamina,
+        stones: player.stones,
+        selectedSlot: player.selectedSlot,
+        inventory: inventory.map((item) => item ? { ...item } : null),
+        cauldronIngredients: [...player.cauldronIngredients],
+        healingTowardIngredient: player.healingTowardIngredient,
+      },
+      metadata: {
+        slot,
+        savedAt: now,
+        x: Math.floor(player.x / TILE_SIZE) + 1,
+        y: Math.floor(player.y / TILE_SIZE) + 1,
+      },
+    };
+  }
+
+  function updateSaveMenu() {
+    for (const button of saveSlotButtons) {
+      const slot = Number(button.dataset.saveSlot);
+      const metadata = saveSlotMetadata[slot];
+      const detail = button.querySelector(".save-slot-detail");
+      button.setAttribute("aria-pressed", String(slot === selectedSaveSlot));
+      detail.textContent = metadata
+        ? `Saved ${new Date(metadata.savedAt).toLocaleString()} · X ${metadata.x}, Y ${metadata.y}`
+        : "Empty slot";
+    }
+    loadSaveButton.disabled = !saveSlotMetadata[selectedSaveSlot];
+    saveCurrentWorldButton.disabled = !hasActiveWorld;
+    saveMenuCloseButton.hidden = !hasActiveWorld;
+  }
+
+  async function refreshSaveSlots() {
+    const metadata = await getSaveSlotMetadata();
+    saveSlotMetadata = Array(SAVE_SLOT_COUNT).fill(null);
+    for (const entry of metadata) {
+      if (Number.isInteger(entry.slot) && entry.slot >= 0 && entry.slot < SAVE_SLOT_COUNT) {
+        saveSlotMetadata[entry.slot] = entry;
+      }
+    }
+    updateSaveMenu();
+    saveMenuStatus.textContent = "Choose a slot to continue or create a world.";
+  }
+
+  function setSaveMenuOpen(open) {
+    if (!open && !hasActiveWorld) {
+      return;
+    }
+    saveMenuOpen = open;
+    saveMenu.hidden = !open;
+    if (open) {
+      selectedSaveSlot = activeSaveSlot ?? selectedSaveSlot;
+      updateSaveMenu();
+      refreshSaveSlots().catch((error) => {
+        saveMenuStatus.textContent = `Unable to load save slots: ${error.message}`;
+      });
+    } else {
+      keysDown.clear();
+      player.shieldRaised = false;
+      canvas.focus({ preventScroll: true });
+    }
+  }
+
+  async function saveCurrentWorldToSelectedSlot() {
+    if (!world) {
+      return false;
+    }
+    const slot = selectedSaveSlot;
+    saveMenuStatus.textContent = `Saving to Save ${slot + 1}…`;
+    try {
+      const snapshot = createSaveSnapshot(slot);
+      await writeSaveSlot(slot, snapshot, snapshot.metadata);
+      activeSaveSlot = slot;
+      saveSlotMetadata[slot] = snapshot.metadata;
+      updateSaveMenu();
+      saveMenuStatus.textContent = `Saved to Save ${slot + 1}.`;
+      return true;
+    } catch (error) {
+      saveMenuStatus.textContent = `Unable to save this world: ${error.message}`;
+      return false;
+    }
+  }
+
+  async function decodeSavedAsset(asset) {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error(`Unable to restore custom art "${asset.label}".`));
+      image.src = asset.image;
+    });
+    return image;
+  }
+
+  async function restoreSaveSlot(slot) {
+    const save = await readSaveSlot(slot);
+    if (!save || save.version !== 1 || !save.world) {
+      throw new Error("This save file is missing or has an unsupported format.");
+    }
+    const tileCount = MAP_COLUMNS * MAP_ROWS;
+    if (
+      save.world.ground?.length !== tileCount
+      || save.world.objects?.length !== tileCount
+      || save.world.objectVariants?.length !== tileCount
+    ) {
+      throw new Error("This save file contains an incomplete world map.");
+    }
+    if (
+      !save.player
+      || !Number.isFinite(save.player.x)
+      || !Number.isFinite(save.player.y)
+      || !Array.isArray(save.player.inventory)
+    ) {
+      throw new Error("This save file contains invalid player data.");
+    }
+
+    const restoredAssets = new Map();
+    for (const assetData of save.customAssets || []) {
+      const id = `saved-${slot}-${assetData.key}`;
+      const previousAsset = editorAssets.get(id);
+      if (previousAsset) {
+        customPalette.querySelector(`[data-editor-value="${id}"]`)?.remove();
+        editorAssets.delete(id);
+      }
+      const image = await decodeSavedAsset(assetData);
+      const asset = {
+        id,
+        label: assetData.label,
+        path: assetData.path,
+        source: assetData.source,
+        canvas: createNormalizedArt(image, false),
+      };
+      addCustomAsset(asset);
+      asset.behindPlayer = assetData.behindPlayer;
+      asset.hitbox = { ...assetData.hitbox };
+      restoredAssets.set(assetData.key, asset);
+    }
+
+    const restoredWorld = {
+      ground: new Uint8Array(save.world.ground),
+      objects: new Uint8Array(save.world.objects),
+      objectVariants: new Uint8Array(save.world.objectVariants),
+      trees: new Map(save.world.trees),
+      treeCells: new Map(),
+      pickups: save.pickups.map((pickup) => ({ ...pickup })),
+      customObjects: new Map(),
+    };
+    for (const rootIndex of restoredWorld.trees.keys()) {
+      forEachTreeFootprintCell(rootIndex, (index) => restoredWorld.treeCells.set(index, rootIndex));
+    }
+    for (const [index, assetKey] of save.world.customObjects || []) {
+      const asset = restoredAssets.get(assetKey);
+      if (!asset) {
+        throw new Error("This save file is missing art used in the world.");
+      }
+      restoredWorld.customObjects.set(index, asset);
+    }
+
+    world = restoredWorld;
+    pickups.length = 0;
+    pickups.push(...restoredWorld.pickups);
+    enemies.length = 0;
+    enemies.push(...(save.enemies || []).map((enemy) => ({ ...enemy })));
+    inventory.fill(null);
+    for (const [index, item] of (save.player.inventory || []).entries()) {
+      if (index < inventory.length && item) {
+        inventory[index] = { ...item };
+      }
+    }
+    Object.assign(player, {
+      x: save.player.x,
+      y: save.player.y,
+      facingX: save.player.facingX,
+      facingY: save.player.facingY,
+      health: save.player.health,
+      stamina: save.player.stamina,
+      stones: save.player.stones,
+      selectedSlot: save.player.selectedSlot,
+      cauldronIngredients: [...(save.player.cauldronIngredients || [])],
+      healingTowardIngredient: save.player.healingTowardIngredient || 0,
+      isJumping: false,
+      jumpElapsed: 0,
+      lastSafeX: save.player.x,
+      lastSafeY: save.player.y,
+      stationaryTime: 0,
+      dashTime: 0,
+      dashX: 0,
+      dashY: 0,
+      weaponCooldown: 0,
+      swordSwing: 0,
+      damageBoostTime: 0,
+      invincibilityTime: 0,
+      infiniteStaminaTime: 0,
+      shieldRaised: false,
+    });
+    mouseWorldX = player.x + player.facingX * TILE_SIZE;
+    mouseWorldY = player.y + player.facingY * TILE_SIZE;
+    enemySpawnTimer = 0;
+    drawMinimapTerrain();
+    resetMinimapExploration();
+    hasActiveWorld = true;
+    activeSaveSlot = slot;
+    selectedSaveSlot = slot;
+    updateSaveMenu();
+  }
+
+  async function loadSelectedSave() {
+    const slot = selectedSaveSlot;
+    saveMenuStatus.textContent = `Loading Save ${slot + 1}…`;
+    try {
+      await restoreSaveSlot(slot);
+      saveMenuStatus.textContent = `Loaded Save ${slot + 1}.`;
+      setSaveMenuOpen(false);
+    } catch (error) {
+      saveMenuStatus.textContent = `Unable to load this world: ${error.message}`;
+    }
+  }
+
+  async function createWorldInSelectedSlot() {
+    const slot = selectedSaveSlot;
+    if (
+      saveSlotMetadata[slot]
+      && !window.confirm(`Replace Save ${slot + 1} with a new world?`)
+    ) {
+      return;
+    }
+    saveMenuStatus.textContent = `Creating a new world in Save ${slot + 1}…`;
+    try {
+      activeSaveSlot = slot;
+      startNewWorld();
+      if (await saveCurrentWorldToSelectedSlot()) {
+        setSaveMenuOpen(false);
+      }
+    } catch (error) {
+      saveMenuStatus.textContent = `Unable to create this world: ${error.message}`;
+    }
   }
 
   function drawMinimapTerrain() {
@@ -2451,16 +2827,25 @@
       : Math.min((timestamp - previousFrame) / 1000, 0.05);
     previousFrame = timestamp;
 
-    if (!editorOpen) {
+    if (world && !editorOpen && !saveMenuOpen) {
       updatePlayer(deltaSeconds);
       updateEnemies(deltaSeconds);
     }
-    drawWorld(timestamp);
+    if (world) {
+      drawWorld(timestamp);
+    }
     window.requestAnimationFrame(frame);
   }
 
   window.addEventListener("keydown", (event) => {
     const key = event.key;
+    if (saveMenuOpen) {
+      if (key === "Escape" && hasActiveWorld) {
+        event.preventDefault();
+        setSaveMenuOpen(false);
+      }
+      return;
+    }
     if (normalizeKey(key) === "p" && !event.repeat) {
       event.preventDefault();
       setEditorOpen(!editorOpen);
@@ -2576,6 +2961,9 @@
     editorLastRow = null;
   });
   canvas.addEventListener("mousedown", (event) => {
+    if (saveMenuOpen) {
+      return;
+    }
     if (event.button !== 0 && event.button !== 2) {
       return;
     }
@@ -2604,6 +2992,17 @@
     editorLastRow = null;
   });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+  saveMenuOpenButton.addEventListener("click", () => setSaveMenuOpen(true));
+  saveMenuCloseButton.addEventListener("click", () => setSaveMenuOpen(false));
+  saveSlotButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      selectedSaveSlot = Number(button.dataset.saveSlot);
+      updateSaveMenu();
+    });
+  });
+  loadSaveButton.addEventListener("click", loadSelectedSave);
+  createSaveWorldButton.addEventListener("click", createWorldInSelectedSlot);
+  saveCurrentWorldButton.addEventListener("click", saveCurrentWorldToSelectedSlot);
   editorCloseButton.addEventListener("click", () => setEditorOpen(false));
   generateNewWorldButton.addEventListener("click", startNewWorld);
   eraseToolButton.addEventListener("click", selectEraser);
@@ -2681,7 +3080,10 @@
   const resizeObserver = new ResizeObserver(resizeCanvas);
   resizeObserver.observe(canvas);
 
-  startNewWorld();
+  updateSaveMenu();
+  refreshSaveSlots().catch((error) => {
+    saveMenuStatus.textContent = `Unable to load save slots: ${error.message}`;
+  });
   resizeCanvas();
   window.requestAnimationFrame(frame);
 })();
