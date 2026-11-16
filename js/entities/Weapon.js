@@ -1,4 +1,4 @@
-export class Weapon {
+ export class Weapon {
   constructor({ id, name, damage, range, cooldown, icon }) {
     Object.assign(this, { id, name, damage, range, cooldown, icon });
   }

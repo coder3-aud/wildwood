@@ -49,26 +49,45 @@
       <div class="destination-card">
         <button class="destination-back" type="button" data-return-to-title>← Main menu</button>
         <p class="eyebrow">YOUR FIELD GUIDE</p>
-        <h1 id="credits-page-title">Credits + How to Play</h1>
-        <p class="destination-placeholder">Credits and gameplay instructions will live here. More details are coming soon.</p>
+        <h1 id="credits-page-title">How to Play</h1>
+        <p class="field-guide-intro"><strong>Wildwood · Field Test 01</strong><br>A little world to explore.</p>
+        <div class="field-guide-sections">
+          <section aria-labelledby="movement-heading">
+            <h2 id="movement-heading">Movement</h2>
+            <ul>
+              <li><span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span> or the arrow keys to move.</li>
+              <li><span class="keycap keycap-wide">SPACE</span> to jump (⅛ stamina). Jump to reach flying enemies.</li>
+              <li><span class="keycap">SHIFT</span> to dash (¼ stamina).</li>
+            </ul>
+          </section>
+          <section aria-labelledby="combat-heading">
+            <h2 id="combat-heading">Combat and gathering</h2>
+            <ul>
+              <li>Left-click to attack in the direction you are moving or last moved, or eat selected food.</li>
+              <li>With the sword, hold <span class="keycap">E</span> and left-click to strike one block up (½ stamina), one-shot airborne enemies there, and knock back and stun enemies within three blocks.</li>
+              <li>Hold <span class="keycap">E</span> to raise your shield toward the mouse and block attacks from the front.</li>
+              <li>Right-click rocks to mine them; right-click the ground to build.</li>
+              <li>Walk over rare drops to collect them. Number keys 1–8 select your inventory.</li>
+              <li>Three matching brew actions grant a boost: double damage (3s), invincibility (5s), or infinite stamina (10s).</li>
+            </ul>
+          </section>
+          <section aria-labelledby="world-heading">
+            <h2 id="world-heading">Your world</h2>
+            <ul>
+              <li>Use Save / Load to keep your world in one of three slots.</li>
+              <li>Press <span class="keycap">P</span> to open the map editor. Click or drag on the map to paint; each selected sprite fills one 32 × 32 tile.</li>
+              <li>Press <span class="keycap">ESC</span> to pause or resume.</li>
+            </ul>
+          </section>
+          <p class="field-guide-note"><span aria-hidden="true">✦</span> The world is built from editable tiles — ready for custom sprites and new game features.</p>
+        </div>
       </div>
     </section>
 
     <main id="game-shell" class="game-shell" hidden>
-      <header class="game-header">
-        <div>
-          <p class="eyebrow">FIELD TEST 01</p>
-          <h1>Wildwood</h1>
-          <p class="subtitle">A little world to explore</p>
-        </div>
-        <div class="header-actions">
-          <button id="save-menu-open" class="save-menu-open" type="button">Save / Load</button>
-          <p class="editor-shortcut"><span class="keycap">P</span> Open map editor</p>
-        </div>
-      </header>
-
       <section class="game-panel" aria-label="Game">
         <div class="canvas-wrap">
+          <button id="save-menu-open" class="save-menu-open" type="button">Save / Load</button>
           <canvas id="game" tabindex="0" aria-label="Top-down forest game. Use WASD or arrow keys to move, Escape to pause or resume, Space to jump, hold E to block attacks from the direction of the mouse, number keys 1 through 8 to select inventory, left click to attack in the direction you are moving or last moved or eat selected food, hold E and left click with the sword for a powerful upward strike costing half your stamina, and right click to mine rocks or place stone blocks.">
             Your browser does not support the HTML canvas element.
           </canvas>
@@ -160,25 +179,7 @@
             <p class="editor-hint editor-exit-hint"><span class="keycap">P</span> or <span class="keycap">ESC</span> to close</p>
           </aside>
         </div>
-        <footer class="game-footer">
-          <p><span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span> or <span class="keycap keycap-wide">↑ ↓ ← →</span> to move</p>
-          <p class="hint"><span class="keycap keycap-wide">SPACE</span> to jump (⅛ stamina)</p>
-          <p class="hint"><span class="keycap">SHIFT</span> to dash (¼ stamina)</p>
-          <p class="hint"><span class="keycap">E</span> hold shield toward mouse to block attacks from the front</p>
-          <p class="hint"><span class="keycap">P</span> open map editor</p>
-          <p class="hint"><span class="keycap">ESC</span> pause or resume</p>
-          <p class="hint">Use Save / Load to keep your world in one of three slots</p>
-          <p class="hint">Left click to attack in the direction you are moving (or last moved)</p>
-          <p class="hint">With the sword, hold <span class="keycap">E</span> and left-click to strike one block up (½ stamina), one-shot airborne enemies there, and knock back and stun enemies within three blocks</p>
-          <p class="hint">Right click rocks to mine; right click ground to build</p>
-          <p class="hint">Jump to reach flying enemies</p>
-          <p class="hint">Walk over rare drops to collect; keys 1–8 select your inventory</p>
-          <p class="hint">Left click attacks in your movement direction or eats selected food</p>
-          <p class="hint">Three matching brew actions grant a boost: double damage (3s), invincibility (5s), or infinite stamina (10s)</p>
-        </footer>
       </section>
-
-      <p class="next-step"><span aria-hidden="true">✦</span> The world is built from editable tiles — ready for custom sprites and new game features.</p>
     </main>
     <section id="save-menu" class="save-menu" aria-labelledby="save-menu-title" aria-modal="true" role="dialog" hidden>
       <header class="save-menu-header">
